@@ -404,10 +404,10 @@ LAYOUT: Dict[str, Tuple[float,float]] = {
     "o2":     (850, 760),
     "oxal":   (840, 640),
 
-    # OxPhos
+    
     "oaa":    (840, 640),
 
-    # PPP — left branch
+    
     "g6p_ppp":(200, 110),
     "p6gl":   (110, 190),
     "p6g":    (110, 270),
@@ -419,17 +419,18 @@ LAYOUT: Dict[str, Tuple[float,float]] = {
     "nadph":  (30,  190),
     "nadp":   (30,  270),
 
-    # Gluconeogenesis extras
+    
     "mal_c":  (400, 680),
     "oxal":   (400, 760),
 }
 
+RXN_IDS = [r["id"] for r in REACTIONS]
 # ── GNN training data (heuristic but biologically-constrained fluxes) ──────────
 # Each sample: [glucose_mM, oxygen_fraction, enzyme_mult, temp_C] → flux vector
 def generate_training_samples(n: int = 2000) -> Tuple[List, List]:
     import random, math
     inputs, outputs = [], []
-    rxn_ids = [r["id"] for r in REACTIONS]
+    
 
     for _ in range(n):
         g  = random.uniform(0.1, 20.0)   # glucose mM
@@ -464,7 +465,7 @@ def generate_training_samples(n: int = 2000) -> Tuple[List, List]:
             "PC": gng_flux*0.8, "PEPCK": gng_flux*0.8, "FBPase": gng_flux*0.7,
             "G6Pase": gng_flux*0.65, "ME": gng_flux*0.5,
         }
-        fluxes = [max(0, flux_map.get(r, 0) + random.gauss(0, 0.2)) for r in rxn_ids]
+        fluxes = [max(0, flux_map.get(r, 0) + random.gauss(0, 0.2)) for r in RXN_IDS]
         inputs.append([g, o, e, t])
         outputs.append(fluxes)
 

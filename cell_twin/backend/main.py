@@ -11,7 +11,7 @@ Endpoints:
   POST /api/train             → (re)train GNN model
   GET  /api/model_status      → GNN training status
 """
-
+from kegg_data import METABOLITES, REACTIONS, LAYOUT, RXN_IDS
 import asyncio, time, math, os
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from kegg_data import METABOLITES, REACTIONS, LAYOUT, RXN_IDS
 import gnn_model as gnn
 
-# ── Lifespan: warm up GNN on startup ──────────────────────────────────────────
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[Startup] Warming up GNN model...")
@@ -41,7 +41,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Pydantic schemas ───────────────────────────────────────────────────────────
 class SimRequest(BaseModel):
     glucose: float = Field(8.0, ge=0, le=20, description="Glucose concentration mM")
     oxygen:  float = Field(0.21, ge=0, le=1, description="O2 fraction (0-1)")
@@ -52,14 +51,13 @@ class SimRequest(BaseModel):
 class TrainRequest(BaseModel):
     n_samples: int = Field(1500, ge=100, le=5000)
 
-# ── Helper: build full graph payload ──────────────────────────────────────────
+
 def build_graph_payload(fluxes: dict | None = None):
     """Build nodes + edges JSON for the frontend Escher-style map."""
     nodes = []
     for mid, m in METABOLITES.items():
         pos = LAYOUT.get(mid, (500, 400))
         f = 0.0
-        # Metabolite 'flux' = max flux of connected reactions
         connected_rxns = [r for r in REACTIONS if mid in r["substrates"] or mid in r["products"]]
         if fluxes and connected_rxns:
             f = max((fluxes.get(r["id"], 0) for r in connected_rxns), default=0)
@@ -79,7 +77,7 @@ def build_graph_payload(fluxes: dict | None = None):
     edges = []
     for rxn in REACTIONS:
         flux_val = fluxes.get(rxn["id"], 0) if fluxes else 0
-        # Draw edges from each substrate to each product via a midpoint
+
         src_pos_avg = _avg_pos([LAYOUT.get(s, (500,400)) for s in rxn["substrates"]])
         dst_pos_avg = _avg_pos([LAYOUT.get(p, (500,400)) for p in rxn["products"]])
 
@@ -119,7 +117,6 @@ def build_graph_payload(fluxes: dict | None = None):
                 "ec": rxn["ec"],
             })
 
-        # Reaction node itself
         rmid_x = (src_pos_avg[0] + dst_pos_avg[0]) / 2
         rmid_y = (src_pos_avg[1] + dst_pos_avg[1]) / 2
         nodes.append({
@@ -152,7 +149,7 @@ def _avg_pos(positions):
 def atp_accounting(fluxes: dict) -> dict:
     """Compute per-pathway ATP yield."""
     glyco_atp  = fluxes.get("PGK",0)*2 + fluxes.get("PK",0)*2 - fluxes.get("HK",0) - fluxes.get("PFK",0)
-    tca_atp    = fluxes.get("SUCL",0)  # GTP ≈ ATP
+    tca_atp    = fluxes.get("SUCL",0)  
     oxphos_atp = fluxes.get("OXPHOS",0)
     total      = max(0, glyco_atp + tca_atp + oxphos_atp)
     return {
@@ -175,7 +172,6 @@ def make_interpretation(result: dict, glucose: float, oxygen: float) -> list[str
     if result.get("nadph", 0) > 5:     flags.append("🧬 High NADPH — biosynthesis + antioxidant capacity up")
     return flags
 
-# ── ROUTES ─────────────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
     return {"status": "ok", "torch": gnn.TORCH_AVAILABLE, "torch_geometric": gnn.TG_AVAILABLE,
@@ -256,7 +252,6 @@ async def get_kegg(pathway_id: str):
                         "description": desc, "source": "KEGG REST API"}
     except Exception as e:
         pass
-    # Embedded fallback
     fallback = {
         "hsa00010": "Glycolysis / Gluconeogenesis — converts glucose to pyruvate (glycolysis) or glucose from non-carbohydrate substrates (gluconeogenesis). 10 enzymatic steps in glycolysis, 11 in gluconeogenesis (shares 7 reversible reactions).",
         "hsa00020": "TCA Cycle (Citric Acid / Krebs Cycle) — central hub of aerobic metabolism. 8 reactions in mitochondria, generates NADH, FADH2, GTP, CO2 per turn.",
