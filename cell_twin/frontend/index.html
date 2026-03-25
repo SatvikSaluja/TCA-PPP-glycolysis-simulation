@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cell Digital Twin — Metabolic Atlas v2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Unbounded:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+/* ── DESIGN SYSTEM ─────────────────────────────────────────── */
+:root{
+  --ink:#05091a; --ink2:#0b1330; --ink3:#101c3a;
+  --glass:rgba(11,19,48,0.88);
+  --b0:rgba(100,220,255,0.10); --b1:rgba(100,220,255,0.25); --b2:rgba(100,220,255,0.5);
+  --teal:#22d3ee; --blue:#3b82f6; --violet:#a78bfa;
+  --amber:#fbbf24; --rose:#f43f5e; --green:#34d399; --orange:#fb923c;
+  --c-glyco:#22d3ee;  /* teal    */
+  --c-tca:#a78bfa;    /* violet  */
+  --c-ppp:#34d399;    /* green   */
+  --c-gluconeo:#f43f5e; /* rose  */
+  --c-ferm:#fbbf24;   /* amber   */
+  --c-oxphos:#fb923c; /* orange  */
+  --c-energy:#64748b; --c-redox:#94a3b8;
+  --text:#cde8ff; --text2:#7ba8c8; --text3:#3d6080;
+  --r:4px;
+  --shadow:0 4px 24px rgba(0,0,0,0.5);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--ink);color:var(--text);font-family:'JetBrains Mono',monospace}
+
+/* grid bg */
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(rgba(34,211,238,.025) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(34,211,238,.025) 1px,transparent 1px);
+  background-size:48px 48px;}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 70% 50% at 20% 30%,rgba(59,130,246,.06) 0%,transparent 60%),
+             radial-gradient(ellipse 60% 40% at 80% 70%,rgba(167,139,250,.05) 0%,transparent 60%);}
+
+/* ── HEADER ────────────────────────────────────────────────── */
+#header{position:relative;z-index:50;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;height:52px;border-bottom:1px solid var(--b0);
+  background:rgba(5,9,26,.95);backdrop-filter:blur(16px);}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-orb{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--teal);
+  position:relative;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 12px rgba(34,211,238,.4);}
+.brand-orb::after{content:'';width:9px;height:9px;border-radius:50%;background:var(--teal);
+  animation:orbPulse 2s ease-in-out infinite;}
+@keyframes orbPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.5}}
+.brand-name{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:700;letter-spacing:2px;color:var(--teal)}
+.brand-sub{font-size:8px;color:var(--text3);letter-spacing:3px;margin-top:1px}
+.header-center{display:flex;gap:2px;background:var(--ink2);border:1px solid var(--b0);border-radius:6px;overflow:hidden;}
+.tab-btn{padding:6px 14px;background:transparent;border:none;color:var(--text2);
+  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;
+  text-transform:uppercase;transition:all .2s;}
+.tab-btn.active{background:linear-gradient(135deg,var(--teal),var(--blue));color:#fff;font-weight:600;}
+.tab-btn:hover:not(.active){background:var(--b0);color:var(--text)}
+.header-right{display:flex;align-items:center;gap:10px;}
+.badge{display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;
+  font-size:9px;letter-spacing:1.5px;border:1px solid var(--b1);color:var(--teal)}
+.badge-dot{width:5px;height:5px;border-radius:50%;background:var(--teal);animation:orbPulse 1.5s infinite}
+.model-sw{display:flex;gap:2px;background:var(--ink3);border:1px solid var(--b0);border-radius:6px;overflow:hidden}
+.msw-btn{padding:4px 10px;background:transparent;border:none;color:var(--text2);
+  font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;transition:all .2s}
+.msw-btn.active{background:var(--violet);color:#fff;font-weight:700}
+
+/* ── LAYOUT ─────────────────────────────────────────────────── */
+#app{position:relative;z-index:1;display:grid;
+  grid-template-columns:260px 1fr 270px;height:calc(100vh - 52px);}
+
+/* ── LEFT PANEL ─────────────────────────────────────────────── */
+#left{overflow-y:auto;border-right:1px solid var(--b0);background:var(--glass);backdrop-filter:blur(10px);}
+.phead{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:600;letter-spacing:3px;
+  color:var(--teal);padding:10px 14px 7px;border-bottom:1px solid var(--b0);
+  display:flex;align-items:center;gap:7px;text-transform:uppercase}
+.phead::before{content:'';width:2px;height:11px;background:var(--teal);box-shadow:0 0 5px var(--teal);flex-shrink:0}
+
+.ctrl{padding:12px 14px;border-bottom:1px solid rgba(100,220,255,.06);}
+.clabel{font-size:9px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;
+  display:flex;justify-content:space-between;margin-bottom:6px;}
+.cval{color:var(--teal);font-weight:700}
+input[type=range]{width:100%;-webkit-appearance:none;height:3px;background:var(--ink3);
+  border-radius:2px;outline:none;cursor:pointer;margin:4px 0;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
+  border-radius:50%;background:var(--teal);box-shadow:0 0 7px var(--teal);cursor:pointer;transition:transform .1s}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.3)}
+
+.btn{width:100%;padding:9px;border:1px solid var(--b1);background:transparent;color:var(--teal);
+  font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:2px;
+  cursor:pointer;border-radius:var(--r);transition:all .2s;text-transform:uppercase;margin-bottom:5px}
+.btn:hover{background:rgba(34,211,238,.1);box-shadow:0 0 15px rgba(34,211,238,.2)}
+.btn.primary{background:var(--teal);color:var(--ink);border-color:var(--teal)}
+.btn.primary:hover{background:#44e8ff;box-shadow:0 0 20px rgba(34,211,238,.5)}
+.btn.warn{border-color:rgba(251,191,36,.5);color:var(--amber)}
+.btn.warn:hover{background:rgba(251,191,36,.1)}
+.btn.danger{border-color:rgba(244,63,94,.5);color:var(--rose)}
+.btn.danger:hover{background:rgba(244,63,94,.1)}
+
+/* pathway filter pills */
+.pill-row{display:flex;flex-wrap:wrap;gap:4px;padding:10px 14px;border-bottom:1px solid rgba(100,220,255,.06)}
+.pill{padding:3px 9px;border-radius:20px;font-size:8px;letter-spacing:1px;cursor:pointer;
+  border:1px solid transparent;transition:all .2s;font-family:'JetBrains Mono',monospace;text-transform:uppercase}
+.pill.active{font-weight:700}
+
+/* legend */
+.leg-item{display:flex;align-items:center;gap:8px;padding:4px 14px;font-size:9px;color:var(--text2)}
+.leg-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+
+/* event log */
+.log-box{max-height:120px;overflow-y:auto;padding:6px 0;font-size:9px;color:var(--text3);line-height:1.9}
+.log-box::-webkit-scrollbar{width:2px}
+.log-box::-webkit-scrollbar-thumb{background:var(--b1)}
+.log-entry{padding:1px 14px;border-left:2px solid transparent}
+.log-entry.info{border-color:var(--teal);color:var(--teal)}
+.log-entry.warn{border-color:var(--amber);color:var(--amber)}
+.log-entry.err{border-color:var(--rose);color:var(--rose)}
+
+/* ── CENTER ──────────────────────────────────────────────────── */
+#center{position:relative;display:flex;flex-direction:column;overflow:hidden;}
+#map-area{flex:1;position:relative;min-height:0}
+#map-svg{width:100%;height:100%;cursor:grab}
+#map-svg:active{cursor:grabbing}
+canvas#particles{position:absolute;inset:0;pointer-events:none}
+
+/* map overlays */
+.map-overlay{position:absolute;pointer-events:none}
+.mo-tl{top:10px;left:14px}
+.mo-tr{top:10px;right:14px}
+
+.overlaytag{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:600;
+  letter-spacing:2.5px;color:var(--teal);text-transform:uppercase;
+  display:flex;align-items:center;gap:6px}
+.overlaytag::before{content:'';width:2px;height:10px;background:var(--teal);box-shadow:0 0 4px var(--teal)}
+.overlay-hint{font-size:8px;color:var(--text3);letter-spacing:1px;margin-top:3px}
+
+/* ── BOTTOM TIME GRAPH ──────────────────────────────────────── */
+#timebar{height:165px;border-top:1px solid var(--b0);position:relative}
+#time-svg{width:100%;height:100%}
+.tg-legend{font-size:8px;font-family:'JetBrains Mono',monospace;position:absolute;
+  top:8px;left:70px;display:flex;gap:14px}
+.tg-leg-item{display:flex;align-items:center;gap:4px}
+.tg-leg-line{width:14px;height:2px;border-radius:1px}
+
+/* ── RIGHT PANEL ─────────────────────────────────────────────── */
+#right{overflow-y:auto;border-left:1px solid var(--b0);background:var(--glass);backdrop-filter:blur(10px);}
+#right::-webkit-scrollbar{width:3px}
+#right::-webkit-scrollbar-thumb{background:var(--b1)}
+
+/* ATP big display */
+.atp-hero{padding:14px;border-bottom:1px solid var(--b0)}
+.atp-row{display:flex;align-items:baseline;gap:6px}
+.atp-n{font-family:'Unbounded',sans-serif;font-size:32px;font-weight:900;
+  color:var(--teal);text-shadow:0 0 20px rgba(34,211,238,.6);transition:all .3s}
+.atp-unit{font-size:10px;color:var(--text2)}
+.atp-bar-wrap{height:6px;background:var(--ink3);border-radius:3px;overflow:hidden;margin-top:8px}
+.atp-bar{height:100%;background:linear-gradient(90deg,var(--teal),var(--blue));
+  border-radius:3px;transition:width .5s ease;box-shadow:0 0 8px rgba(34,211,238,.4)}
+.atp-breakdown{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:10px}
+.atp-sub{background:var(--ink3);border-radius:4px;padding:5px 7px;text-align:center}
+.atp-sub-n{font-size:12px;font-weight:700;font-family:'Unbounded',sans-serif}
+.atp-sub-l{font-size:7px;color:var(--text2);letter-spacing:1px;margin-top:1px}
+
+/* stats */
+.stat-row{display:flex;justify-content:space-between;align-items:center;
+  padding:7px 14px;border-bottom:1px solid rgba(100,220,255,.05)}
+.stat-row:hover{background:rgba(34,211,238,.03)}
+.stat-name{font-size:9px;color:var(--text2);letter-spacing:1px}
+.stat-val{font-size:10px;font-weight:700;color:var(--teal);transition:color .3s}
+.stat-val.hi{color:var(--amber)} .stat-val.lo{color:var(--rose)} .stat-val.ok{color:var(--green)}
+
+/* reaction detail card */
+#rxn-card{margin:10px;padding:10px;border:1px solid var(--b1);border-radius:6px;
+  background:rgba(34,211,238,.04);display:none}
+.rc-title{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--teal);margin-bottom:6px}
+.rc-row{font-size:9px;color:var(--text2);padding:2px 0;line-height:1.6}
+.rc-row span{color:var(--text)}
+
+/* flux list */
+.flux-item{padding:4px 14px;display:flex;align-items:center;gap:7px}
+.fi-pathway{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.fi-name{width:82px;font-size:8px;color:var(--text2);letter-spacing:.5px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fi-bar-wrap{flex:1;height:5px;background:var(--ink3);border-radius:2px;overflow:hidden}
+.fi-bar{height:100%;border-radius:2px;transition:width .4s ease}
+.fi-val{width:38px;text-align:right;font-size:8px;color:var(--text3)}
+
+/* interpretation */
+.interp-box{margin:10px;padding:10px;border:1px solid rgba(34,211,238,.15);border-radius:6px;
+  background:rgba(34,211,238,.03);font-size:9px;line-height:1.9;color:var(--text2)}
+.interp-head{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;
+  color:var(--teal);margin-bottom:6px;letter-spacing:2px}
+
+/* ── TOOLTIP ──────────────────────────────────────────────────── */
+#tooltip{position:fixed;pointer-events:none;background:var(--ink2);border:1px solid var(--b2);
+  border-radius:6px;padding:10px 13px;font-size:9px;z-index:999;display:none;
+  max-width:260px;line-height:1.7;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.tip-n{font-family:'Unbounded',sans-serif;font-size:11px;font-weight:700;color:var(--teal);margin-bottom:4px}
+.tip-t{font-size:8px;color:var(--text3);letter-spacing:1.5px;margin-bottom:6px}
+.tip-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--b0);padding:2px 0}
+.tip-key{color:var(--text2)} .tip-v{color:var(--text);font-weight:600}
+.tip-reg{font-size:8.5px;color:var(--amber);margin-top:6px;line-height:1.5}
+
+/* ── ALERT ───────────────────────────────────────────────────── */
+#alert{position:fixed;top:62px;left:50%;transform:translateX(-50%) translateY(-20px);
+  padding:7px 20px;border-radius:20px;font-size:10px;letter-spacing:1px;z-index:200;
+  opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap}
+#alert.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#alert.warn{background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:var(--amber)}
+#alert.info{background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);color:var(--teal)}
+#alert.err{background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.3);color:var(--rose)}
+
+/* cycle detail modal */
+#cycle-modal{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;
+  background:rgba(5,9,26,.7);backdrop-filter:blur(8px)}
+.cm-box{background:var(--ink2);border:1px solid var(--b2);border-radius:10px;
+  padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto;position:relative}
+.cm-close{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text2);
+  font-size:20px;cursor:pointer;font-family:'JetBrains Mono',monospace;padding:0}
+.cm-close:hover{color:var(--rose)}
+.cm-title{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:700;margin-bottom:14px}
+.cm-step{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--b0)}
+.cm-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;flex-shrink:0;margin-top:2px}
+.cm-step-content{flex:1}
+.cm-step-name{font-size:11px;font-weight:600;margin-bottom:2px}
+.cm-step-desc{font-size:9px;color:var(--text2);line-height:1.6}
+.cm-step-reg{font-size:8.5px;color:var(--amber);margin-top:3px}
+
+/* api status */
+.api-badge{display:flex;align-items:center;gap:4px;font-size:8px;
+  padding:2px 8px;border-radius:10px;letter-spacing:1px}
+.api-badge.on{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:var(--green)}
+.api-badge.off{background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.3);color:var(--rose)}
+
+/* scrollbar global */
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--ink)}
+::-webkit-scrollbar-thumb{background:var(--b0);border-radius:2px}
+</style>
+</head>
+<body>
+
+<!-- TOOLTIP -->
+<div id="tooltip"></div>
+<!-- ALERT -->
+<div id="alert"></div>
+<!-- CYCLE MODAL -->
+<div id="cycle-modal" onclick="if(event.target===this)closeCycleModal()">
+  <div class="cm-box" id="cm-box"></div>
+</div>
+
+<!-- ══════════════════ HEADER ══════════════════ -->
+<div id="header">
+  <div class="brand">
+    <div class="brand-orb"></div>
+    <div>
+      <div class="brand-name">CELL DIGITAL TWIN</div>
+      <div class="brand-sub">Metabolic Atlas v2 · GNN + FBA</div>
+    </div>
+  </div>
+  <div class="header-center">
+    <button class="tab-btn active" onclick="setView('all')">ALL PATHWAYS</button>
+    <button class="tab-btn" onclick="setView('glycolysis')">GLYCOLYSIS</button>
+    <button class="tab-btn" onclick="setView('tca')">TCA CYCLE</button>
+    <button class="tab-btn" onclick="setView('ppp')">PPP</button>
+    <button class="tab-btn" onclick="setView('gluconeo')">GLUCONEO</button>
+  </div>
+  <div class="header-right">
+    <div class="model-sw">
+      <button class="msw-btn active" id="mFBA" onclick="setModel('fba')">FBA</button>
+      <button class="msw-btn" id="mGNN" onclick="setModel('gnn')">GNN</button>
+    </div>
+    <div id="api-badge" class="api-badge off">● OFFLINE</div>
+    <div class="badge"><div class="badge-dot"></div><span id="statusTxt">SIMULATING</span></div>
+    <div class="badge" style="border-color:rgba(167,139,250,.3);color:var(--violet)" id="stepBadge">STEP 0</div>
+  </div>
+</div>
+
+<!-- ══════════════════ APP ══════════════════ -->
+<div id="app">
+
+  <!-- ══ LEFT ══ -->
+  <div id="left">
+    <div class="phead">Environment</div>
+
+    <div class="ctrl">
+      <div class="clabel"><span>GLUCOSE</span><span class="cval" id="lGluc">8.0 mM</span></div>
+      <input type="range" id="sGluc" min="0" max="20" step="0.1" value="8" oninput="onCtrl()">
+    </div>
+    <div class="ctrl">
+      <div class="clabel"><span>OXYGEN</span><span class="cval" id="lOxy">21.0%</span></div>
+      <input type="range" id="sOxy" min="0" max="1" step="0.01" value="0.21" oninput="onCtrl()">
+    </div>
+    <div class="ctrl">
+      <div class="clabel"><span>ENZYME ACTIVITY</span><span class="cval" id="lEnz">1.00×</span></div>
+      <input type="range" id="sEnz" min="0.1" max="5" step="0.05" value="1" oninput="onCtrl()">
+    </div>
+    <div class="ctrl">
+      <div class="clabel"><span>TEMPERATURE</span><span class="cval" id="lTemp">37.0°C</span></div>
+      <input type="range" id="sTemp" min="20" max="45" step="0.5" value="37" oninput="onCtrl()">
+    </div>
+    <div class="ctrl">
+      <div class="clabel"><span>SIM SPEED</span><span class="cval" id="lSpeed">1.0×</span></div>
+      <input type="range" id="sSpeed" min="0.2" max="5" step="0.2" value="1" oninput="onCtrl()">
+    </div>
+
+    <div class="ctrl" style="display:flex;flex-direction:column;gap:5px">
+      <button class="btn primary" id="playBtn" onclick="togglePlay()">⏸ PAUSE</button>
+      <button class="btn" onclick="resetSim()">↺ RESET</button>
+      <button class="btn warn" onclick="perturbCell()">⚡ PERTURBATION</button>
+    </div>
+
+    <div class="phead" style="margin-top:2px">Pathways</div>
+    <div class="pill-row" id="pillRow">
+      <div class="pill active" data-pw="glycolysis" style="background:rgba(34,211,238,.15);border-color:rgba(34,211,238,.5);color:var(--teal)" onclick="togglePill(this)">Glycolysis</div>
+      <div class="pill active" data-pw="tca" style="background:rgba(167,139,250,.15);border-color:rgba(167,139,250,.5);color:var(--violet)" onclick="togglePill(this)">TCA</div>
+      <div class="pill active" data-pw="ppp" style="background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.5);color:var(--green)" onclick="togglePill(this)">PPP</div>
+      <div class="pill active" data-pw="gluconeo" style="background:rgba(244,63,94,.15);border-color:rgba(244,63,94,.5);color:var(--rose)" onclick="togglePill(this)">Gluconeo</div>
+      <div class="pill active" data-pw="fermentation" style="background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.5);color:var(--amber)" onclick="togglePill(this)">Ferm</div>
+      <div class="pill active" data-pw="oxphos" style="background:rgba(251,146,60,.15);border-color:rgba(251,146,60,.5);color:var(--orange)" onclick="togglePill(this)">OxPhos</div>
+    </div>
+
+    <div class="phead">Cycle Guide</div>
+    <div style="display:flex;flex-direction:column;gap:3px;padding:8px 14px;border-bottom:1px solid var(--b0)">
+      <button class="btn" onclick="showCycleInfo('glycolysis')" style="font-size:9px;padding:6px;border-color:rgba(34,211,238,.3)">📘 Glycolysis (10 steps)</button>
+      <button class="btn" onclick="showCycleInfo('gluconeo')" style="font-size:9px;padding:6px;border-color:rgba(244,63,94,.3)">📙 Gluconeogenesis (11 steps)</button>
+      <button class="btn" onclick="showCycleInfo('tca')" style="font-size:9px;padding:6px;border-color:rgba(167,139,250,.3)">📗 TCA Cycle (8 steps)</button>
+      <button class="btn" onclick="showCycleInfo('ppp')" style="font-size:9px;padding:6px;border-color:rgba(52,211,153,.3)">📕 PPP (8 steps)</button>
+    </div>
+
+    <div class="phead">Legend</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--c-glyco)"></div>Glycolysis</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--c-tca)"></div>TCA Cycle</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--c-ppp)"></div>Pentose Phosphate</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--c-gluconeo)"></div>Gluconeogenesis</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--c-ferm)"></div>Fermentation</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--c-oxphos)"></div>Oxidative Phosph.</div>
+
+    <div class="phead" style="margin-top:4px">Event Log</div>
+    <div class="log-box" id="logBox">
+      <div class="log-entry info">[0] Cell Digital Twin initialized</div>
+    </div>
+  </div>
+
+  <!-- ══ CENTER ══ -->
+  <div id="center">
+    <div id="map-area">
+      <canvas id="particles"></canvas>
+      <svg id="map-svg"></svg>
+      <div class="map-overlay mo-tl">
+        <div class="overlaytag">Metabolic Network Map</div>
+        <div class="overlay-hint">Scroll to zoom · Drag to pan · Click node for details</div>
+      </div>
+      <div class="map-overlay mo-tr" style="text-align:right">
+        <div style="font-size:8px;color:var(--text3);letter-spacing:1px">NODE SIZE = FLUX MAGNITUDE</div>
+        <div style="font-size:8px;color:var(--text3);letter-spacing:1px;margin-top:2px">EDGE WIDTH = REACTION RATE</div>
+        <div id="modelChip" style="margin-top:4px;display:inline-block;padding:2px 8px;border-radius:10px;font-size:8px;background:rgba(34,211,238,.15);border:1px solid rgba(34,211,238,.3);color:var(--teal)">FBA MODE</div>
+      </div>
+    </div>
+    <div id="timebar">
+      <svg id="time-svg"></svg>
+      <div class="tg-legend">
+        <div class="tg-leg-item"><div class="tg-leg-line" style="background:var(--teal)"></div><span style="font-size:8px;color:var(--text2)">ATP</span></div>
+        <div class="tg-leg-item"><div class="tg-leg-line" style="background:var(--amber)"></div><span style="font-size:8px;color:var(--text2)">Glucose</span></div>
+        <div class="tg-leg-item"><div class="tg-leg-line" style="background:var(--blue)"></div><span style="font-size:8px;color:var(--text2)">Oxygen</span></div>
+        <div class="tg-leg-item"><div class="tg-leg-line" style="background:var(--rose)"></div><span style="font-size:8px;color:var(--text2)">Lactate</span></div>
+        <div class="tg-leg-item"><div class="tg-leg-line" style="background:var(--green)"></div><span style="font-size:8px;color:var(--text2)">NADPH</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RIGHT ══ -->
+  <div id="right">
+    <div class="atp-hero">
+      <div style="font-size:8px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">ATP PRODUCTION RATE</div>
+      <div class="atp-row">
+        <div class="atp-n" id="atpN">0.00</div>
+        <div class="atp-unit">μmol/L·s</div>
+      </div>
+      <div class="atp-bar-wrap"><div class="atp-bar" id="atpBar" style="width:0%"></div></div>
+      <div class="atp-breakdown">
+        <div class="atp-sub">
+          <div class="atp-sub-n" id="atpG" style="color:var(--teal)">0.0</div>
+          <div class="atp-sub-l">GLYCO</div>
+        </div>
+        <div class="atp-sub">
+          <div class="atp-sub-n" id="atpT" style="color:var(--violet)">0.0</div>
+          <div class="atp-sub-l">TCA</div>
+        </div>
+        <div class="atp-sub">
+          <div class="atp-sub-n" id="atpO" style="color:var(--orange)">0.0</div>
+          <div class="atp-sub-l">OXPHOS</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reaction detail card (shown on click) -->
+    <div id="rxn-card">
+      <div class="rc-title" id="rc-name">—</div>
+      <div class="rc-row">Enzyme: <span id="rc-enz">—</span></div>
+      <div class="rc-row">EC: <span id="rc-ec">—</span></div>
+      <div class="rc-row">KEGG: <span id="rc-kegg">—</span></div>
+      <div class="rc-row">ΔG°: <span id="rc-dg">—</span> kJ/mol</div>
+      <div class="rc-row">Reversible: <span id="rc-rev">—</span></div>
+      <div class="rc-row">Flux: <span id="rc-flux">—</span></div>
+      <div class="rc-row" style="margin-top:5px;color:var(--amber)"><span id="rc-reg">—</span></div>
+    </div>
+
+    <div class="phead">System State</div>
+    <div class="stat-row"><span class="stat-name">GLUCOSE</span><span class="stat-val" id="sGlucSt">—</span></div>
+    <div class="stat-row"><span class="stat-name">OXYGEN</span><span class="stat-val" id="sOxySt">—</span></div>
+    <div class="stat-row"><span class="stat-name">PYRUVATE</span><span class="stat-val" id="sPyr">—</span></div>
+    <div class="stat-row"><span class="stat-name">LACTATE</span><span class="stat-val" id="sLac">—</span></div>
+    <div class="stat-row"><span class="stat-name">NADH</span><span class="stat-val" id="sNadh">—</span></div>
+    <div class="stat-row"><span class="stat-name">FADH₂</span><span class="stat-val" id="sFadh">—</span></div>
+    <div class="stat-row"><span class="stat-name">CITRATE</span><span class="stat-val" id="sCit">—</span></div>
+    <div class="stat-row"><span class="stat-name">R-5-P (PPP)</span><span class="stat-val" id="sR5p">—</span></div>
+    <div class="stat-row"><span class="stat-name">NADPH</span><span class="stat-val" id="sNadph">—</span></div>
+    <div class="stat-row"><span class="stat-name">WARBURG EFFECT</span><span class="stat-val" id="sWarburg">—</span></div>
+
+    <div class="phead">Reaction Fluxes</div>
+    <div id="fluxList"></div>
+
+    <div class="interp-box">
+      <div class="interp-head">◈ CELL INTERPRETATION</div>
+      <div id="interpText">Awaiting simulation...</div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ══════════════════════════════════════════════════════════
+// METABOLIC DATA (embedded — mirrors backend kegg_data.py)
+// ══════════════════════════════════════════════════════════
+
+const METABOLITES = {
+  glc:{name:"Glucose",formula:"C₆H₁₂O₆",kegg:"C00031",pathway:"glycolysis",comp:"cytosol",charge:0},
+  g6p:{name:"Glucose-6-P",formula:"C₆H₁₃O₉P",kegg:"C00668",pathway:"glycolysis",comp:"cytosol",charge:-2},
+  f6p:{name:"Fructose-6-P",formula:"C₆H₁₃O₉P",kegg:"C00085",pathway:"glycolysis",comp:"cytosol",charge:-2},
+  f16bp:{name:"Fructose-1,6-BP",formula:"C₆H₁₄O₁₂P₂",kegg:"C00354",pathway:"glycolysis",comp:"cytosol",charge:-4},
+  dhap:{name:"DHAP",formula:"C₃H₇O₆P",kegg:"C00111",pathway:"glycolysis",comp:"cytosol",charge:-2},
+  gap:{name:"G3P",formula:"C₃H₇O₇P",kegg:"C00118",pathway:"glycolysis",comp:"cytosol",charge:-2},
+  bpg:{name:"1,3-BPG",formula:"C₃H₈O₁₀P₂",kegg:"C00236",pathway:"glycolysis",comp:"cytosol",charge:-4},
+  pg3:{name:"3-PG",formula:"C₃H₇O₇P",kegg:"C00197",pathway:"glycolysis",comp:"cytosol",charge:-3},
+  pg2:{name:"2-PG",formula:"C₃H₇O₇P",kegg:"C00631",pathway:"glycolysis",comp:"cytosol",charge:-3},
+  pep:{name:"PEP",formula:"C₃H₅O₆P",kegg:"C00074",pathway:"glycolysis",comp:"cytosol",charge:-3},
+  pyr:{name:"Pyruvate",formula:"C₃H₄O₃",kegg:"C00022",pathway:"glycolysis",comp:"cytosol",charge:-1},
+  lac:{name:"Lactate",formula:"C₃H₆O₃",kegg:"C00186",pathway:"fermentation",comp:"cytosol",charge:-1},
+  atp:{name:"ATP",formula:"C₁₀H₁₆N₅O₁₃P₃",kegg:"C00002",pathway:"energy",comp:"cytosol",charge:-4},
+  adp:{name:"ADP",formula:"C₁₀H₁₅N₅O₁₀P₂",kegg:"C00008",pathway:"energy",comp:"cytosol",charge:-3},
+  nad:{name:"NAD⁺",formula:"C₂₁H₂₈N₇O₁₄P₂",kegg:"C00003",pathway:"redox",comp:"cytosol",charge:-1},
+  nadh:{name:"NADH",formula:"C₂₁H₂₉N₇O₁₄P₂",kegg:"C00004",pathway:"redox",comp:"cytosol",charge:-2},
+  pi:{name:"Phosphate",formula:"HO₄P",kegg:"C00009",pathway:"energy",comp:"cytosol",charge:-2},
+  accoa:{name:"Acetyl-CoA",formula:"C₂₃H₃₈N₇O₁₇P₃S",kegg:"C00024",pathway:"tca",comp:"mitochondria",charge:-4},
+  oaa:{name:"Oxaloacetate",formula:"C₄H₄O₅",kegg:"C00036",pathway:"tca",comp:"mitochondria",charge:-2},
+  cit:{name:"Citrate",formula:"C₆H₈O₇",kegg:"C00158",pathway:"tca",comp:"mitochondria",charge:-3},
+  icit:{name:"Isocitrate",formula:"C₆H₈O₇",kegg:"C00311",pathway:"tca",comp:"mitochondria",charge:-3},
+  akg:{name:"α-Ketoglutarate",formula:"C₅H₆O₅",kegg:"C00026",pathway:"tca",comp:"mitochondria",charge:-2},
+  scoa:{name:"Succinyl-CoA",formula:"C₂₅H₄₀N₇O₁₉P₃S",kegg:"C00091",pathway:"tca",comp:"mitochondria",charge:-5},
+  suc:{name:"Succinate",formula:"C₄H₆O₄",kegg:"C00042",pathway:"tca",comp:"mitochondria",charge:-2},
+  fum:{name:"Fumarate",formula:"C₄H₄O₄",kegg:"C00122",pathway:"tca",comp:"mitochondria",charge:-2},
+  mal:{name:"Malate",formula:"C₄H₆O₅",kegg:"C00149",pathway:"tca",comp:"mitochondria",charge:-2},
+  nadm:{name:"NAD⁺(m)",formula:"C₂₁H₂₈N₇O₁₄P₂",kegg:"C00003",pathway:"redox",comp:"mitochondria",charge:-1},
+  nadhm:{name:"NADH(m)",formula:"C₂₁H₂₉N₇O₁₄P₂",kegg:"C00004",pathway:"redox",comp:"mitochondria",charge:-2},
+  fadh2:{name:"FADH₂",formula:"C₂₇H₃₃N₉O₁₅P₂",kegg:"C01352",pathway:"redox",comp:"mitochondria",charge:-2},
+  co2:{name:"CO₂",formula:"CO₂",kegg:"C00011",pathway:"tca",comp:"mitochondria",charge:0},
+  h2o:{name:"H₂O",formula:"H₂O",kegg:"C00001",pathway:"tca",comp:"mitochondria",charge:0},
+  gtp:{name:"GTP",formula:"C₁₀H₁₆N₅O₁₄P₃",kegg:"C00044",pathway:"energy",comp:"mitochondria",charge:-4},
+  gdp:{name:"GDP",formula:"C₁₀H₁₅N₅O₁₁P₂",kegg:"C00035",pathway:"energy",comp:"mitochondria",charge:-3},
+  coa:{name:"CoA",formula:"C₂₁H₃₆N₇O₁₆P₃S",kegg:"C00010",pathway:"tca",comp:"mitochondria",charge:-4},
+  g6p_ppp:{name:"G6P (PPP)",formula:"C₆H₁₃O₉P",kegg:"C00668",pathway:"ppp",comp:"cytosol",charge:-2},
+  p6gl:{name:"6-P-Gluconolact.",formula:"C₆H₁₁O₉P",kegg:"C01236",pathway:"ppp",comp:"cytosol",charge:-2},
+  p6g:{name:"6-P-Gluconate",formula:"C₆H₁₃O₁₀P",kegg:"C00345",pathway:"ppp",comp:"cytosol",charge:-3},
+  ru5p:{name:"Ribulose-5-P",formula:"C₅H₁₁O₈P",kegg:"C00199",pathway:"ppp",comp:"cytosol",charge:-2},
+  r5p:{name:"Ribose-5-P",formula:"C₅H₁₁O₈P",kegg:"C00117",pathway:"ppp",comp:"cytosol",charge:-2},
+  x5p:{name:"Xylulose-5-P",formula:"C₅H₁₁O₈P",kegg:"C00231",pathway:"ppp",comp:"cytosol",charge:-2},
+  s7p:{name:"Sedoheptulose-7P",formula:"C₇H₁₅O₁₀P",kegg:"C05382",pathway:"ppp",comp:"cytosol",charge:-2},
+  e4p:{name:"Erythrose-4-P",formula:"C₄H₉O₇P",kegg:"C00279",pathway:"ppp",comp:"cytosol",charge:-2},
+  nadph:{name:"NADPH",formula:"C₂₁H₃₀N₇O₁₇P₃",kegg:"C00005",pathway:"redox",comp:"cytosol",charge:-4},
+  nadp:{name:"NADP⁺",formula:"C₂₁H₂₉N₇O₁₇P₃",kegg:"C00006",pathway:"redox",comp:"cytosol",charge:-3},
+  o2:{name:"O₂",formula:"O₂",kegg:"C00007",pathway:"oxphos",comp:"mitochondria",charge:0},
+  oxal:{name:"OAA (GNG)",formula:"C₄H₄O₅",kegg:"C00036",pathway:"gluconeo",comp:"cytosol",charge:-2},
+  mal_c:{name:"Malate (cyto)",formula:"C₄H₆O₅",kegg:"C00149",pathway:"gluconeo",comp:"cytosol",charge:-2},
+};
+
+const REACTIONS_DATA = [
+  {id:"HK",name:"Hexokinase",enzyme:"HK1/HK2",ec:"2.7.1.1",kegg:"R00299",substrates:["glc","atp"],products:["g6p","adp"],pathway:"glycolysis",rev:false,dg:-16.7,atp:-1,regulation:"Inhibited by G6P (product); activated by insulin"},
+  {id:"PGI",name:"Phosphoglucose Isomerase",enzyme:"GPI",ec:"5.3.1.9",kegg:"R00771",substrates:["g6p"],products:["f6p"],pathway:"glycolysis",rev:true,dg:-2.9,atp:0,regulation:"Near-equilibrium; inhibited by erythrose-4-P"},
+  {id:"PFK",name:"Phosphofructokinase-1",enzyme:"PFKM",ec:"2.7.1.11",kegg:"R00756",substrates:["f6p","atp"],products:["f16bp","adp"],pathway:"glycolysis",rev:false,dg:-14.2,atp:-1,regulation:"⭐ KEY: inhibited by ATP/citrate; activated by AMP/ADP/F-2,6-BP"},
+  {id:"ALD",name:"Aldolase",enzyme:"ALDOA",ec:"4.1.2.13",kegg:"R01068",substrates:["f16bp"],products:["dhap","gap"],pathway:"glycolysis",rev:true,dg:23.8,atp:0,regulation:"Reversible; product removal drives forward"},
+  {id:"TPI",name:"Triosephosphate Isomerase",enzyme:"TPI1",ec:"5.3.1.1",kegg:"R01015",substrates:["dhap"],products:["gap"],pathway:"glycolysis",rev:true,dg:7.5,atp:0,regulation:"Near-equilibrium"},
+  {id:"GAPDH",name:"G3P Dehydrogenase",enzyme:"GAPDH",ec:"1.2.1.12",kegg:"R01061",substrates:["gap","nad","pi"],products:["bpg","nadh"],pathway:"glycolysis",rev:true,dg:6.3,atp:0,regulation:"Inhibited by high NADH/NAD+ ratio"},
+  {id:"PGK",name:"Phosphoglycerate Kinase",enzyme:"PGK1",ec:"2.7.2.3",kegg:"R01512",substrates:["bpg","adp"],products:["pg3","atp"],pathway:"glycolysis",rev:true,dg:-18.9,atp:2,regulation:"Substrate-level phosphorylation (×2 per glucose)"},
+  {id:"PGM",name:"Phosphoglycerate Mutase",enzyme:"PGAM1",ec:"5.4.2.11",kegg:"R01518",substrates:["pg3"],products:["pg2"],pathway:"glycolysis",rev:true,dg:4.4,atp:0,regulation:"Near-equilibrium"},
+  {id:"ENO",name:"Enolase",enzyme:"ENO1",ec:"4.2.1.11",kegg:"R00658",substrates:["pg2"],products:["pep","h2o"],pathway:"glycolysis",rev:true,dg:1.8,atp:0,regulation:"Inhibited by F-2,6-BP"},
+  {id:"PK",name:"Pyruvate Kinase",enzyme:"PKM2",ec:"2.7.1.40",kegg:"R00200",substrates:["pep","adp"],products:["pyr","atp"],pathway:"glycolysis",rev:false,dg:-31.4,atp:2,regulation:"⭐ Activated by F-1,6-BP; inhibited by ATP/Ala; PKM2 overexpressed in cancer"},
+  {id:"LDH",name:"Lactate Dehydrogenase",enzyme:"LDHA",ec:"1.1.1.27",kegg:"R00703",substrates:["pyr","nadh"],products:["lac","nad"],pathway:"fermentation",rev:true,dg:-25.1,atp:0,regulation:"Favored in anaerobic conditions; regenerates NAD+"},
+  {id:"PDH",name:"Pyruvate Dehydrogenase",enzyme:"PDH complex",ec:"1.2.4.1",kegg:"R00209",substrates:["pyr","nadm","coa"],products:["accoa","nadhm","co2"],pathway:"tca",rev:false,dg:-39.4,atp:0,regulation:"⭐ Inhibited by Acetyl-CoA/NADH/ATP; activated by Ca²⁺"},
+  {id:"CS",name:"Citrate Synthase",enzyme:"CS",ec:"2.3.3.1",kegg:"R00351",substrates:["accoa","oaa"],products:["cit","coa"],pathway:"tca",rev:false,dg:-31.4,atp:0,regulation:"⭐ KEY: inhibited by ATP/NADH/succinyl-CoA/citrate"},
+  {id:"ACO",name:"Aconitase",enzyme:"ACO2",ec:"4.2.1.3",kegg:"R01325",substrates:["cit"],products:["icit"],pathway:"tca",rev:true,dg:6.3,atp:0,regulation:"Fe-S cluster enzyme; inhibited by fluorocitrate"},
+  {id:"IDH",name:"Isocitrate Dehydrogenase",enzyme:"IDH2",ec:"1.1.1.41",kegg:"R00709",substrates:["icit","nadm"],products:["akg","nadhm","co2"],pathway:"tca",rev:false,dg:-20.9,atp:0,regulation:"⭐ KEY: activated by ADP/Ca²⁺; inhibited by ATP/NADH"},
+  {id:"OGDH",name:"α-KG Dehydrogenase",enzyme:"OGDH complex",ec:"1.2.4.2",kegg:"R08549",substrates:["akg","nadm","coa"],products:["scoa","nadhm","co2"],pathway:"tca",rev:false,dg:-33.5,atp:0,regulation:"Inhibited by succinyl-CoA/NADH/ATP; activated by Ca²⁺"},
+  {id:"SUCL",name:"Succinyl-CoA Ligase",enzyme:"SUCLG1",ec:"6.2.1.4",kegg:"R00405",substrates:["scoa","gdp","pi"],products:["suc","gtp","coa"],pathway:"tca",rev:true,dg:-2.9,atp:1,regulation:"Substrate-level phosphorylation (GTP)"},
+  {id:"SDH",name:"Succinate Dehydrogenase",enzyme:"SDHA (Complex II)",ec:"1.3.5.1",kegg:"R02164",substrates:["suc"],products:["fum","fadh2"],pathway:"tca",rev:false,dg:0,atp:0,regulation:"Links TCA to ETC; inhibited by malonate (competitive)"},
+  {id:"FUM",name:"Fumarase",enzyme:"FH",ec:"4.2.1.2",kegg:"R01082",substrates:["fum","h2o"],products:["mal"],pathway:"tca",rev:true,dg:-3.8,atp:0,regulation:"Near-equilibrium"},
+  {id:"MDH",name:"Malate Dehydrogenase",enzyme:"MDH2",ec:"1.1.1.37",kegg:"R00342",substrates:["mal","nadm"],products:["oaa","nadhm"],pathway:"tca",rev:true,dg:29.7,atp:0,regulation:"Near-equilibrium; regenerates OAA for CS"},
+  {id:"OXPHOS",name:"Oxidative Phosphorylation",enzyme:"ETC + ATP synthase",ec:"7.1.2.2",kegg:"R02703",substrates:["nadhm","fadh2","o2"],products:["atp","h2o"],pathway:"oxphos",rev:false,dg:-220,atp:32,regulation:"Inhibited by oligomycin; uncoupled by DNP"},
+  {id:"G6PDH",name:"G6P Dehydrogenase",enzyme:"G6PD",ec:"1.1.1.49",kegg:"R00835",substrates:["g6p_ppp","nadp"],products:["p6gl","nadph"],pathway:"ppp",rev:false,dg:-17.6,atp:0,regulation:"⭐ RATE-LIMITING: inhibited by NADPH; X-linked enzyme"},
+  {id:"LAC",name:"Lactonase",enzyme:"PGLS",ec:"3.1.1.31",kegg:"R01528",substrates:["p6gl"],products:["p6g"],pathway:"ppp",rev:false,dg:-21.8,atp:0,regulation:"Spontaneous hydrolysis"},
+  {id:"PGD",name:"6-PG Dehydrogenase",enzyme:"PGD",ec:"1.1.1.44",kegg:"R01528",substrates:["p6g","nadp"],products:["ru5p","nadph","co2"],pathway:"ppp",rev:false,dg:-10,atp:0,regulation:"Inhibited by NADPH; produces second NADPH"},
+  {id:"RPI",name:"Ribose-5-P Isomerase",enzyme:"RPIA",ec:"5.3.1.6",kegg:"R01529",substrates:["ru5p"],products:["r5p"],pathway:"ppp",rev:true,dg:-2.4,atp:0,regulation:"Near-equilibrium"},
+  {id:"RPE",name:"Ribulose-P Epimerase",enzyme:"RPE",ec:"5.1.3.1",kegg:"R01529",substrates:["ru5p"],products:["x5p"],pathway:"ppp",rev:true,dg:-2.4,atp:0,regulation:"Near-equilibrium"},
+  {id:"TK1",name:"Transketolase-1",enzyme:"TKT",ec:"2.2.1.1",kegg:"R01529",substrates:["x5p","r5p"],products:["s7p","gap"],pathway:"ppp",rev:true,dg:-0.4,atp:0,regulation:"TPP cofactor; links PPP to glycolysis"},
+  {id:"TA",name:"Transaldolase",enzyme:"TALDO1",ec:"2.2.1.2",kegg:"R01829",substrates:["s7p","gap"],products:["e4p","f6p"],pathway:"ppp",rev:true,dg:-0.5,atp:0,regulation:"Near-equilibrium"},
+  {id:"TK2",name:"Transketolase-2",enzyme:"TKT",ec:"2.2.1.1",kegg:"R01829",substrates:["x5p","e4p"],products:["f6p","gap"],pathway:"ppp",rev:true,dg:-0.4,atp:0,regulation:"Same enzyme as TK1"},
+  {id:"PC",name:"Pyruvate Carboxylase",enzyme:"PC",ec:"6.4.1.1",kegg:"R00344",substrates:["pyr","co2","atp"],products:["oaa","adp","pi"],pathway:"gluconeo",rev:false,dg:-4.6,atp:-1,regulation:"⭐ Activated by Acetyl-CoA (energy surplus signal)"},
+  {id:"PEPCK",name:"PEPCK",enzyme:"PCK1",ec:"4.1.1.32",kegg:"R00341",substrates:["oaa","gtp"],products:["pep","co2","gdp"],pathway:"gluconeo",rev:false,dg:0.8,atp:0,regulation:"Induced by glucagon/cortisol; repressed by insulin"},
+  {id:"FBPase",name:"Fructose-1,6-bisphosphatase",enzyme:"FBP1",ec:"3.1.3.11",kegg:"R04780",substrates:["f16bp","h2o"],products:["f6p","pi"],pathway:"gluconeo",rev:false,dg:-16.3,atp:0,regulation:"Inhibited by AMP/F-2,6-BP; activated by ATP/citrate"},
+  {id:"G6Pase",name:"Glucose-6-Phosphatase",enzyme:"G6PC",ec:"3.1.3.9",kegg:"R00305",substrates:["g6p","h2o"],products:["glc","pi"],pathway:"gluconeo",rev:false,dg:-13.8,atp:0,regulation:"ER membrane enzyme; absent in muscle"},
+  {id:"ME",name:"Malic Enzyme",enzyme:"ME1",ec:"1.1.1.40",kegg:"R00214",substrates:["mal_c","nadp"],products:["pyr","co2","nadph"],pathway:"gluconeo",rev:false,dg:-2.1,atp:0,regulation:"Activated by fumarate; inhibited by ATP"},
+];
+
+// Escher-style positions on a 1000×740 canvas
+const POSITIONS = {
+  // Glycolysis spine (center-left)
+  glc:{x:400,y:28},g6p:{x:400,y:92},f6p:{x:400,y:156},f16bp:{x:400,y:220},
+  dhap:{x:280,y:286},gap:{x:520,y:286},bpg:{x:520,y:350},pg3:{x:520,y:414},
+  pg2:{x:520,y:470},pep:{x:520,y:530},pyr:{x:520,y:594},
+  lac:{x:670,y:634},
+  // Cofactors near glycolysis
+  atp:{x:180,y:56},adp:{x:180,y:106},pi:{x:180,y:370},
+  nad:{x:650,y:294},nadh:{x:650,y:360},
+  h2o:{x:660,y:470},
+  // TCA circle (right)
+  accoa:{x:660,y:594},oaa:{x:800,y:538},cit:{x:890,y:455},
+  icit:{x:900,y:360},akg:{x:860,y:272},scoa:{x:780,y:200},
+  suc:{x:680,y:178},fum:{x:605,y:234},mal:{x:618,y:310},
+  co2:{x:940,y:300},gtp:{x:760,y:155},gdp:{x:820,y:135},
+  coa:{x:700,y:560},nadm:{x:950,y:400},nadhm:{x:960,y:280},
+  fadh2:{x:590,y:200},o2:{x:870,y:610},
+  // OxPhos
+  // PPP (left branch)
+  g6p_ppp:{x:238,y:92},p6gl:{x:135,y:134},p6g:{x:100,y:200},
+  ru5p:{x:100,y:266},r5p:{x:48,y:330},x5p:{x:168,y:330},
+  s7p:{x:100,y:400},e4p:{x:198,y:440},
+  nadph:{x:40,y:180},nadp:{x:40,y:240},
+  // Gluconeo extras
+  oxal:{x:400,y:640},mal_c:{x:410,y:590},
+};
+
+// Pathway colors
+const PC = {
+  glycolysis:"#22d3ee",tca:"#a78bfa",ppp:"#34d399",gluconeo:"#f43f5e",
+  fermentation:"#fbbf24",oxphos:"#fb923c",energy:"#64748b",redox:"#94a3b8",
+};
+
+// ══════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════
+let SIM = {
+  glucose:8, oxygen:0.21, enzyme:1, temp:37, speed:1,
+  model:'fba', running:true, step:0,
+  history:[], fluxes:{}, mets:{}, atpAcct:{},
+  activeView:'all', activePW: new Set(['glycolysis','tca','ppp','gluconeo','fermentation','oxphos']),
+  apiOnline: false,
+};
+const API_BASE = 'http://localhost:8000';
+const MAX_HIST = 120;
+
+// ══════════════════════════════════════════════════════════
+// FBA ENGINE (client-side, mirrors backend heuristic)
+// ══════════════════════════════════════════════════════════
+function runFBA(g,o,e,t){
+  const tf = Math.exp(-0.04*(t-37)**2);
+  const glcF = e*tf*9*g/(g+1.5);
+  const pdhF = glcF*0.85*(o/(o+0.05));
+  const tcaB = pdhF*0.90;
+  const pppS = g>2?0.12:0.06;
+  const pppF = glcF*pppS*e*tf;
+  const fermF = Math.max(0, glcF*0.7*Math.max(0,1-o/0.21));
+  const oxF = tcaB*3.5*(o/(o+0.02))*tf;
+  const gngA = Math.max(0,(1.5-g)/1.5);
+  const gngF = gngA*e*tf*3;
+
+  const fluxes = {
+    HK:glcF*.5,PGI:glcF*.8,PFK:glcF*.85,ALD:glcF*.85,TPI:glcF*.85,
+    GAPDH:glcF*.9,PGK:glcF*.9,PGM:glcF*.9,ENO:glcF*.9,PK:glcF,LDH:fermF,
+    PDH:pdhF,CS:tcaB,ACO:tcaB*.95,IDH:tcaB*.92,OGDH:tcaB*.88,
+    SUCL:tcaB*.85,SDH:tcaB*.82,FUM:tcaB*.80,MDH:tcaB*.78,OXPHOS:oxF,
+    G6PDH:pppF,LAC:pppF*.9,PGD:pppF*.85,RPI:pppF*.7,RPE:pppF*.6,
+    TK1:pppF*.5,TA:pppF*.4,TK2:pppF*.4,
+    PC:gngF*.8,PEPCK:gngF*.8,FBPase:gngF*.7,G6Pase:gngF*.65,ME:gngF*.5,
+  };
+  const atp = Math.max(0, fluxes.PGK*2+fluxes.PK*2+fluxes.OXPHOS-fluxes.HK-fluxes.PFK);
+  return {
+    fluxes,atp,
+    mets:{pyruvate:fluxes.PK*.5,lactate:fermF,nadh:tcaB*1.5,fadh2:tcaB*.8,
+          citrate:tcaB,r5p:pppF*.7,nadph:pppF*1.8,
+          warburg:fermF>glcF*.3?"HIGH":"LOW"},
+    atpAcct:{glycolysis:Math.max(0,fluxes.PGK*2+fluxes.PK*2-fluxes.HK-fluxes.PFK),
+             tca:Math.max(0,fluxes.SUCL),oxphos:Math.max(0,oxF)},
+  };
+}
+
+// ══════════════════════════════════════════════════════════
+// API CALL
+// ══════════════════════════════════════════════════════════
+async function callAPI(g,o,e,t){
+  const ep = SIM.model==='gnn'?'/api/simulate/gnn':'/api/simulate';
+  try{
+    const r = await fetch(API_BASE+ep,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({glucose:g,oxygen:o,enzyme_activity:e,temperature:t,model:SIM.model}),
+      signal:AbortSignal.timeout(2000),
+    });
+    if(!r.ok) return null;
+    const data = await r.json();
+    if(!SIM.apiOnline){SIM.apiOnline=true; updateApiBadge();}
+    return data;
+  }catch{
+    if(SIM.apiOnline){SIM.apiOnline=false;updateApiBadge();}
+    return null;
+  }
+}
+
+function updateApiBadge(){
+  const el = document.getElementById('api-badge');
+  if(SIM.apiOnline){el.className='api-badge on';el.textContent='● BACKEND LIVE';}
+  else{el.className='api-badge off';el.textContent='● OFFLINE (LOCAL)';}
+}
+
+// ══════════════════════════════════════════════════════════
+// CONTROLS
+// ══════════════════════════════════════════════════════════
+function onCtrl(){
+  SIM.glucose = +document.getElementById('sGluc').value;
+  SIM.oxygen  = +document.getElementById('sOxy').value;
+  SIM.enzyme  = +document.getElementById('sEnz').value;
+  SIM.temp    = +document.getElementById('sTemp').value;
+  SIM.speed   = +document.getElementById('sSpeed').value;
+  document.getElementById('lGluc').textContent  = SIM.glucose.toFixed(1)+' mM';
+  document.getElementById('lOxy').textContent   = (SIM.oxygen*100).toFixed(1)+'%';
+  document.getElementById('lEnz').textContent   = SIM.enzyme.toFixed(2)+'×';
+  document.getElementById('lTemp').textContent  = SIM.temp.toFixed(1)+'°C';
+  document.getElementById('lSpeed').textContent = SIM.speed.toFixed(1)+'×';
+}
+
+function setModel(m){
+  SIM.model=m;
+  document.getElementById('mFBA').classList.toggle('active',m==='fba');
+  document.getElementById('mGNN').classList.toggle('active',m==='gnn');
+  document.getElementById('modelChip').textContent=m==='gnn'?'GNN MODE':'FBA MODE';
+  document.getElementById('modelChip').style.background=m==='gnn'?'rgba(167,139,250,.15)':'rgba(34,211,238,.15)';
+  document.getElementById('modelChip').style.color=m==='gnn'?'var(--violet)':'var(--teal)';
+  addLog(`Model → ${m.toUpperCase()}`, 'info');
+}
+
+function setView(v){
+  SIM.activeView=v;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  updateNetworkVisibility();
+}
+
+function togglePlay(){
+  SIM.running=!SIM.running;
+  document.getElementById('playBtn').textContent=SIM.running?'⏸ PAUSE':'▶ RESUME';
+  document.getElementById('statusTxt').textContent=SIM.running?'SIMULATING':'PAUSED';
+}
+
+function resetSim(){
+  SIM.step=0; SIM.history=[];
+  ['sGluc','sOxy','sEnz','sTemp','sSpeed'].forEach((id,i)=>{
+    document.getElementById(id).value=[8,0.21,1,37,1][i];
+  });
+  onCtrl(); clearTimeGraph();
+  addLog('↺ Simulation reset','info');
+}
+
+function perturbCell(){
+  const r=Math.random();
+  if(r<.33){
+    SIM.oxygen=Math.max(0,SIM.oxygen-.15);
+    document.getElementById('sOxy').value=SIM.oxygen;
+    showAlert('⚡ HYPOXIA SHOCK — oxygen deprivation','warn');
+    addLog('⚡ Hypoxia shock applied','warn');
+  }else if(r<.66){
+    SIM.glucose=Math.max(.1,SIM.glucose-4);
+    document.getElementById('sGluc').value=SIM.glucose;
+    showAlert('⚡ GLUCOSE DEPRIVATION','warn');
+    addLog('⚡ Glucose deprivation','warn');
+  }else{
+    SIM.enzyme=Math.min(5,SIM.enzyme*1.8);
+    document.getElementById('sEnz').value=SIM.enzyme;
+    showAlert('⚡ ENZYME HYPERACTIVATION','warn');
+    addLog('⚡ Enzyme hyperactivation','warn');
+  }
+  onCtrl();
+}
+
+function togglePill(el){
+  const pw=el.dataset.pw;
+  el.classList.toggle('active');
+  if(el.classList.contains('active')) SIM.activePW.add(pw);
+  else SIM.activePW.delete(pw);
+  updateNetworkVisibility();
+}
+
+// ══════════════════════════════════════════════════════════
+// D3 ESCHER-STYLE NETWORK MAP
+// ══════════════════════════════════════════════════════════
+let mapSvg, mapG, zoom, nodeG, edgeG, rxnNodeG, particleCanvas, pctx;
+let mapW=0, mapH=0;
+
+function initMap(){
+  const area = document.getElementById('map-area');
+  mapW = area.clientWidth; mapH = area.clientHeight;
+
+  const svg = d3.select('#map-svg');
+  svg.selectAll('*').remove();
+
+  const defs = svg.append('defs');
+
+  // Glow filter
+  const filter = defs.append('filter').attr('id','glow');
+  filter.append('feGaussianBlur').attr('stdDeviation','2').attr('result','blur');
+  filter.append('feMerge').selectAll('feMergeNode').data(['blur','SourceGraphic'])
+    .enter().append('feMergeNode').attr('in',d=>d);
+
+  // Arrow markers per pathway
+  Object.entries(PC).forEach(([pw,col])=>{
+    defs.append('marker').attr('id','arr-'+pw)
+      .attr('viewBox','0 -4 8 8').attr('refX',7).attr('refY',0)
+      .attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4').attr('fill',col).attr('opacity',.8);
+    defs.append('marker').attr('id','arr-faint-'+pw)
+      .attr('viewBox','0 -4 8 8').attr('refX',7).attr('refY',0)
+      .attr('markerWidth',4).attr('markerHeight',4).attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4').attr('fill',col).attr('opacity',.2);
+  });
+
+  zoom = d3.zoom().scaleExtent([0.25,4])
+    .on('zoom',({transform})=>mapG.attr('transform',transform));
+  svg.call(zoom);
+
+  mapG = svg.append('g').attr('transform',`translate(${mapW*.08},${mapH*.08}) scale(0.84)`);
+
+  edgeG   = mapG.append('g').attr('class','edges');
+  rxnNodeG= mapG.append('g').attr('class','rxn-nodes');
+  nodeG   = mapG.append('g').attr('class','met-nodes');
+
+  // Build metabolite nodes
+  const metData = Object.entries(METABOLITES).map(([id,m])=>({
+    id, ...m, x: POSITIONS[id]?.x??500, y: POSITIONS[id]?.y??400
+  }));
+
+  // Build reaction midpoints
+  const rxnData = REACTIONS_DATA.map(r=>{
+    const subs = r.substrates.map(s=>POSITIONS[s]??{x:500,y:400});
+    const prds = r.products.map(p=>POSITIONS[p]??{x:500,y:400});
+    const allP = [...subs,...prds];
+    return {
+      ...r,
+      x: allP.reduce((s,p)=>s+p.x,0)/allP.length,
+      y: allP.reduce((s,p)=>s+p.y,0)/allP.length,
+    };
+  });
+
+  // Draw edges (substrate→rxn and rxn→product)
+  const edgesData = [];
+  rxnData.forEach(r=>{
+    r.substrates.forEach(s=>{
+      const sp=POSITIONS[s]??{x:500,y:400};
+      edgesData.push({id:`${r.id}_s_${s}`,x1:sp.x,y1:sp.y,x2:r.x,y2:r.y,
+        rxnId:r.id,pathway:r.pathway,flux:0,type:'sub'});
+    });
+    r.products.forEach(p=>{
+      const pp=POSITIONS[p]??{x:500,y:400};
+      edgesData.push({id:`${r.id}_p_${p}`,x1:r.x,y1:r.y,x2:pp.x,y2:pp.y,
+        rxnId:r.id,pathway:r.pathway,flux:0,type:'prod'});
+    });
+  });
+
+  edgeG.selectAll('line.edge')
+    .data(edgesData, d=>d.id).enter()
+    .append('line').attr('class','edge')
+    .attr('data-rxn',d=>d.rxnId)
+    .attr('data-pw',d=>d.pathway)
+    .attr('x1',d=>d.x1).attr('y1',d=>d.y1)
+    .attr('x2',d=>d.x2).attr('y2',d=>d.y2)
+    .attr('stroke',d=>PC[d.pathway]||'#fff')
+    .attr('stroke-opacity',.25).attr('stroke-width',.8)
+    .attr('marker-end',d=>`url(#arr-faint-${d.pathway})`);
+
+  // Reaction nodes (small diamonds)
+  const rxnGs = rxnNodeG.selectAll('g.rxn-node')
+    .data(rxnData, d=>d.id).enter()
+    .append('g').attr('class','rxn-node')
+    .attr('data-id',d=>d.id)
+    .attr('transform',d=>`translate(${d.x},${d.y})`)
+    .style('cursor','pointer')
+    .on('click',(_,d)=>showRxnCard(d))
+    .on('mouseover',(_,d)=>showTip(d,true))
+    .on('mousemove',evt=>{
+      const tip=document.getElementById('tooltip');
+      tip.style.left=(evt.clientX+12)+'px';tip.style.top=(evt.clientY-8)+'px';
+    })
+    .on('mouseout',()=>document.getElementById('tooltip').style.display='none');
+
+  rxnGs.append('rect')
+    .attr('x',-7).attr('y',-7).attr('width',14).attr('height',14)
+    .attr('rx',2)
+    .attr('fill',d=>PC[d.pathway]||'#fff').attr('fill-opacity',.2)
+    .attr('stroke',d=>PC[d.pathway]||'#fff').attr('stroke-width',.8)
+    .attr('transform','rotate(45)');
+
+  rxnGs.append('text').text(d=>d.id)
+    .attr('text-anchor','middle').attr('dy',-12)
+    .attr('font-size','6px').attr('fill',d=>PC[d.pathway]||'#fff')
+    .attr('fill-opacity',.7).attr('font-family','JetBrains Mono,monospace');
+
+  // Metabolite nodes (circles)
+  const metGs = nodeG.selectAll('g.met-node')
+    .data(metData,d=>d.id).enter()
+    .append('g').attr('class','met-node')
+    .attr('data-id',d=>d.id)
+    .attr('transform',d=>`translate(${d.x},${d.y})`)
+    .style('cursor','pointer')
+    .on('mouseover',(_,d)=>showTip(d,false))
+    .on('mousemove',evt=>{
+      const tip=document.getElementById('tooltip');
+      tip.style.left=(evt.clientX+12)+'px';tip.style.top=(evt.clientY-8)+'px';
+    })
+    .on('mouseout',()=>document.getElementById('tooltip').style.display='none');
+
+  // Outer glow ring
+  metGs.append('circle').attr('class','met-glow')
+    .attr('r',12).attr('fill','none')
+    .attr('stroke',d=>PC[d.pathway]||'#fff').attr('stroke-width',0)
+    .attr('opacity',0);
+
+  // Main circle
+  metGs.append('circle').attr('class','met-circle')
+    .attr('r',d=>['atp','adp','nad','nadh','nadph','nadp','pi','h2o','co2','coa'].includes(d.id)?4:8)
+    .attr('fill',d=>PC[d.pathway]||'#fff').attr('fill-opacity',.85)
+    .attr('stroke',d=>PC[d.pathway]||'#fff').attr('stroke-width',.6);
+
+  // Label
+  metGs.append('text').text(d=>d.name)
+    .attr('text-anchor','middle').attr('dy',d=>{
+      const smalls=['atp','adp','nad','nadh','nadph','nadp','pi','h2o','co2','coa'];
+      return smalls.includes(d.id)?-8:-13;
+    })
+    .attr('font-size','6.5px').attr('fill',d=>PC[d.pathway]||'#fff')
+    .attr('fill-opacity',.8).attr('font-family','JetBrains Mono,monospace');
+
+  // Compartment backgrounds
+  const compG = mapG.insert('g',':first-child').attr('class','compartments');
+  // Cytosol (outer)
+  compG.append('rect').attr('x',-20).attr('y',-20).attr('width',1040).attr('height',760)
+    .attr('rx',40).attr('fill','rgba(34,211,238,.018)').attr('stroke','rgba(34,211,238,.08)').attr('stroke-width',1);
+  // Mitochondria (right section)
+  compG.append('ellipse').attr('cx',770).attr('cy',390).attr('rx',210).attr('ry',260)
+    .attr('fill','rgba(167,139,250,.025)').attr('stroke','rgba(167,139,250,.1)').attr('stroke-width',1).attr('stroke-dasharray','4,3');
+  compG.append('text').text('MITOCHONDRIA').attr('x',900).attr('y',190)
+    .attr('font-size','8px').attr('fill','rgba(167,139,250,.35)').attr('letter-spacing','2px')
+    .attr('font-family','Unbounded,sans-serif').attr('text-anchor','middle');
+  compG.append('text').text('CYTOSOL').attr('x',260).attr('y',680)
+    .attr('font-size','8px').attr('fill','rgba(34,211,238,.2)').attr('letter-spacing','2px')
+    .attr('font-family','Unbounded,sans-serif').attr('text-anchor','middle');
+
+  // Pathway region labels
+  const labels=[
+    {text:'GLYCOLYSIS',x:400,y:8,col:'var(--c-glyco)'},
+    {text:'TCA CYCLE',x:780,y:170,col:'var(--c-tca)'},
+    {text:'PPP',x:100,y:60,col:'var(--c-ppp)'},
+    {text:'GLUCONEOGENESIS',x:300,y:690,col:'var(--c-gluconeo)'},
+  ];
+  labels.forEach(lb=>{
+    mapG.append('text').text(lb.text).attr('x',lb.x).attr('y',lb.y)
+      .attr('font-size','8px').attr('fill',lb.col).attr('fill-opacity',.5)
+      .attr('letter-spacing','2px').attr('font-family','Unbounded,sans-serif')
+      .attr('text-anchor','middle');
+  });
+
+  // Particle canvas
+  particleCanvas = document.getElementById('particles');
+  pctx = particleCanvas.getContext('2d');
+  resizeParticles();
+}
+
+let particles = [];
+
+function resizeParticles(){
+  const area=document.getElementById('map-area');
+  particleCanvas.width=area.clientWidth;
+  particleCanvas.height=area.clientHeight;
+}
+
+// ══════════════════════════════════════════════════════════
+// FLUX-DRIVEN NETWORK UPDATE
+// ══════════════════════════════════════════════════════════
+function updateMap(fluxes){
+  if(!mapG||!fluxes) return;
+  const maxF = Math.max(...Object.values(fluxes),1);
+  const viewPW = SIM.activeView==='all'?null:SIM.activeView;
+
+  // Update edges
+  edgeG.selectAll('line.edge').each(function(d){
+    const rxn = REACTIONS_DATA.find(r=>r.id===d.rxnId);
+    if(!rxn) return;
+    const f = fluxes[d.rxnId]||0;
+    const frac = f/maxF;
+    const inView = (!viewPW||rxn.pathway===viewPW) && SIM.activePW.has(rxn.pathway);
+    d3.select(this)
+      .attr('stroke-opacity',inView?Math.max(.1,.15+frac*.75):.04)
+      .attr('stroke-width',inView?Math.max(.5,frac*4+.5):.4)
+      .attr('marker-end',inView&&frac>.2?`url(#arr-${rxn.pathway})`:`url(#arr-faint-${rxn.pathway})`);
+  });
+
+  // Update reaction nodes
+  rxnNodeG.selectAll('g.rxn-node').each(function(d){
+    const f = fluxes[d.id]||0;
+    const frac = f/maxF;
+    const inView = (!viewPW||d.pathway===viewPW) && SIM.activePW.has(d.pathway);
+    const rect = d3.select(this).select('rect');
+    rect.attr('fill-opacity',inView?Math.max(.1,.15+frac*.7):.05)
+        .attr('stroke-width',inView?Math.max(.5,frac*2+.3):.3);
+    if(inView&&f>.5){
+      rect.attr('stroke-opacity',.9);
+    }
+  });
+
+  // Update metabolite nodes
+  nodeG.selectAll('g.met-node').each(function(d){
+    const connRxns = REACTIONS_DATA.filter(r=>r.substrates.includes(d.id)||r.products.includes(d.id));
+    const f = connRxns.reduce((mx,r)=>Math.max(mx,fluxes[r.id]||0),0);
+    const frac = f/maxF;
+    const inView = (!viewPW||d.pathway===viewPW||d.pathway==='energy'||d.pathway==='redox') && SIM.activePW.has(d.pathway);
+    const isSmall = ['atp','adp','nad','nadh','nadph','nadp','pi','h2o','co2','coa'].includes(d.id);
+    const baseR = isSmall?4:8;
+
+    d3.select(this).select('.met-circle')
+      .attr('r', inView?baseR + frac*7:baseR*.6)
+      .attr('fill-opacity',inView?Math.max(.4,.5+frac*.5):.2);
+
+    // Pulse glow on high-flux nodes
+    if(inView&&frac>.6){
+      d3.select(this).select('.met-glow')
+        .attr('r',baseR+frac*14).attr('stroke-width',frac*3)
+        .attr('opacity',frac*.4);
+    } else {
+      d3.select(this).select('.met-glow').attr('opacity',0).attr('stroke-width',0);
+    }
+  });
+
+  // Spawn particles along top flux edges
+  spawnParticles(fluxes, maxF);
+}
+
+function updateNetworkVisibility(){
+  updateMap(SIM.fluxes);
+}
+
+// ══════════════════════════════════════════════════════════
+// PARTICLES
+// ══════════════════════════════════════════════════════════
+function spawnParticles(fluxes, maxF){
+  if(!pctx||particles.length>100) return;
+  const sorted = REACTIONS_DATA.slice().sort((a,b)=>(fluxes[b.id]||0)-(fluxes[a.id]||0)).slice(0,6);
+  const svgRect = document.getElementById('map-svg').getBoundingClientRect();
+  const transform = d3.zoomTransform(document.getElementById('map-svg'));
+
+  sorted.forEach(r=>{
+    const f = fluxes[r.id]||0;
+    if(f<0.2) return;
+    const frac = f/maxF;
+    // pick a substrate→rxn edge for particle
+    const s = r.substrates[0]; if(!s) return;
+    const sp = POSITIONS[s]; if(!sp) return;
+    // midpoint is rxn position
+    const allP=[...r.substrates,...r.products].map(id=>POSITIONS[id]??{x:500,y:400});
+    const rxnX = allP.reduce((s,p)=>s+p.x,0)/allP.length;
+    const rxnY = allP.reduce((s,p)=>s+p.y,0)/allP.length;
+    // Also rxn→product
+    const pd = r.products[0]; if(!pd) return;
+    const pp = POSITIONS[pd]; if(!pp) return;
+
+    const toSvg=(px,py)=>{
+      const [tx,ty]=[transform.applyX(px*0.84+mapW*0.08), transform.applyY(py*0.84+mapH*0.08)];
+      return [tx,ty];
+    };
+
+    const [x1,y1]=toSvg(sp.x,sp.y);
+    const [mx,my]=toSvg(rxnX,rxnY);
+    const [x2,y2]=toSvg(pp.x,pp.y);
+
+    if(Math.random()<frac*.4){
+      particles.push({x:x1,y:y1,tx:mx,ty:my,progress:0,speed:0.012+Math.random()*.015,
+        color:PC[r.pathway]||'#fff',size:1.5+frac*2.5});
+      particles.push({x:mx,y:my,tx:x2,ty:y2,progress:0,speed:0.012+Math.random()*.015,
+        color:PC[r.pathway]||'#fff',size:1.5+frac*2.5});
+    }
+  });
+}
+
+function drawParticles(){
+  if(!pctx) return;
+  pctx.clearRect(0,0,particleCanvas.width,particleCanvas.height);
+  particles = particles.filter(p=>{
+    p.progress += p.speed;
+    if(p.progress>=1) return false;
+    const t=p.progress;
+    const x=p.x+(p.tx-p.x)*t, y=p.y+(p.ty-p.y)*t;
+    const alpha=Math.sin(t*Math.PI);
+    // Core dot
+    pctx.beginPath();pctx.arc(x,y,p.size,0,Math.PI*2);
+    pctx.fillStyle=p.color;pctx.globalAlpha=alpha*.85;pctx.fill();
+    // Glow halo
+    const grd=pctx.createRadialGradient(x,y,0,x,y,p.size*3.5);
+    grd.addColorStop(0,p.color+'bb');grd.addColorStop(1,p.color+'00');
+    pctx.beginPath();pctx.arc(x,y,p.size*3.5,0,Math.PI*2);
+    pctx.fillStyle=grd;pctx.globalAlpha=alpha*.4;pctx.fill();
+    pctx.globalAlpha=1;
+    return true;
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// TIME GRAPH
+// ══════════════════════════════════════════════════════════
+let tgSvg, tgG;
+const TGM = {top:20,right:14,bottom:22,left:44};
+let tgW=0,tgH=0;
+
+function initTimeGraph(){
+  const el=document.getElementById('timebar');
+  tgW=el.clientWidth-TGM.left-TGM.right;
+  tgH=el.clientHeight-TGM.top-TGM.bottom;
+  const svg=d3.select('#time-svg'); svg.selectAll('*').remove();
+  tgG=svg.append('g').attr('transform',`translate(${TGM.left},${TGM.top})`);
+  tgG.append('g').attr('class','tg-lines');
+}
+
+function updateTimeGraph(){
+  if(!tgG||SIM.history.length<2) return;
+  const h=SIM.history.slice(-MAX_HIST);
+  const x=d3.scaleLinear().domain([0,MAX_HIST-1]).range([0,tgW]);
+  const yAtp=d3.scaleLinear().domain([0,Math.max(...h.map(d=>d.atp),20)]).range([tgH,0]);
+  const yGlc=d3.scaleLinear().domain([0,20]).range([tgH,0]);
+  const yOxy=d3.scaleLinear().domain([0,1]).range([tgH,0]);
+  const yLac=d3.scaleLinear().domain([0,12]).range([tgH,0]);
+  const yNadph=d3.scaleLinear().domain([0,10]).range([tgH,0]);
+
+  const series=[
+    {key:'atp',   col:'#22d3ee',y:yAtp},
+    {key:'glucose',col:'#fbbf24',y:yGlc},
+    {key:'oxygen', col:'#3b82f6',y:yOxy},
+    {key:'lactate',col:'#f43f5e',y:yLac},
+    {key:'nadph',  col:'#34d399',y:yNadph},
+  ];
+
+  tgG.select('.tg-lines').selectAll('path').remove();
+  series.forEach(s=>{
+    const line=d3.line().x((_,i)=>x(i)).y(d=>s.y(d[s.key]||0)).curve(d3.curveCatmullRom);
+    tgG.select('.tg-lines').append('path')
+      .datum(h).attr('fill','none').attr('stroke',s.col)
+      .attr('stroke-width',1.5).attr('opacity',.75).attr('d',line);
+  });
+
+  tgG.selectAll('.tg-axis-y').remove();
+  tgG.append('g').attr('class','tg-axis-y')
+    .call(d3.axisLeft(yAtp).ticks(3).tickSize(-tgW))
+    .call(g=>{
+      g.select('.domain').remove();
+      g.selectAll('line').attr('stroke','rgba(34,211,238,.07)');
+      g.selectAll('text').attr('fill','#3d6080').attr('font-size','7px').attr('font-family','JetBrains Mono,monospace');
+    });
+}
+
+function clearTimeGraph(){
+  if(tgG) tgG.select('.tg-lines').selectAll('path').remove();
+}
+
+// ══════════════════════════════════════════════════════════
+// FLUX BAR LIST
+// ══════════════════════════════════════════════════════════
+function initFluxList(){
+  const el=document.getElementById('fluxList');
+  el.innerHTML=REACTIONS_DATA.map(r=>`
+    <div class="flux-item">
+      <div class="fi-pathway" style="background:${PC[r.pathway]||'#fff'}"></div>
+      <div class="fi-name" title="${r.name}">${r.name}</div>
+      <div class="fi-bar-wrap"><div class="fi-bar" id="fb-${r.id}" style="width:0%;background:${PC[r.pathway]||'#fff'}"></div></div>
+      <div class="fi-val" id="fv-${r.id}">0.00</div>
+    </div>
+  `).join('');
+}
+
+function updateFluxList(fluxes){
+  const maxF=Math.max(...Object.values(fluxes),1);
+  REACTIONS_DATA.forEach(r=>{
+    const f=fluxes[r.id]||0;
+    const bar=document.getElementById('fb-'+r.id);
+    const val=document.getElementById('fv-'+r.id);
+    if(bar) bar.style.width=(f/maxF*100)+'%';
+    if(val) val.textContent=f.toFixed(2);
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// STATS & DISPLAY
+// ══════════════════════════════════════════════════════════
+function updateStats(result,g,o){
+  const m=result.mets||{};
+  const a=result.atpAcct||{};
+
+  document.getElementById('atpN').textContent=(result.atp||0).toFixed(2);
+  document.getElementById('atpBar').style.width=Math.min(100,(result.atp||0)/40*100)+'%';
+  document.getElementById('atpG').textContent=(a.glycolysis||0).toFixed(1);
+  document.getElementById('atpT').textContent=(a.tca||0).toFixed(1);
+  document.getElementById('atpO').textContent=(a.oxphos||0).toFixed(1);
+
+  const setS=(id,v,unit,lo,hi)=>{
+    const el=document.getElementById(id); if(!el) return;
+    el.textContent=v.toFixed(2)+' '+unit;
+    el.className='stat-val'+(v<lo?' lo':v>hi?' hi':' ok');
+  };
+  setS('sGlucSt',g,'mM',0.5,15);
+  setS('sOxySt',o*100,'%',5,80);
+  setS('sPyr',m.pyruvate||0,'μM',0,20);
+  setS('sLac',m.lactate||0,'μM',0,5);
+  setS('sNadh',m.nadh||0,'μM',0,30);
+  setS('sFadh',m.fadh2||0,'μM',0,15);
+  setS('sCit',m.citrate||0,'μM',0,15);
+  setS('sR5p',m.r5p||0,'μM',0,5);
+  setS('sNadph',m.nadph||0,'μM',0,8);
+
+  const wEl=document.getElementById('sWarburg');
+  wEl.textContent=m.warburg||'LOW';
+  wEl.className='stat-val'+(m.warburg==='HIGH'?' lo':' ok');
+
+  document.getElementById('stepBadge').textContent='STEP '+SIM.step;
+}
+
+function updateInterpretation(interp){
+  if(Array.isArray(interp))
+    document.getElementById('interpText').innerHTML=interp.join('<br>');
+  else if(typeof interp==='string')
+    document.getElementById('interpText').textContent=interp;
+}
+
+function buildInterpretation(result,g,o){
+  const m=result.mets||{};
+  const lines=[];
+  if(o<0.02) lines.push('🔴 Severe hypoxia — anaerobic crisis; LDH/fermentation dominant');
+  else if(o<0.10) lines.push('🟡 Hypoxic shift — Warburg-like; lactate accumulating');
+  else lines.push('🟢 Aerobic conditions — TCA + OxPhos driving energy');
+  if(g<0.5) lines.push('⚠ Glucose starvation — gluconeogenesis active');
+  else if(g>15) lines.push('⬆ Hyperglycemia — glycolytic flux near Vmax');
+  if(m.warburg==='HIGH') lines.push('⚡ Warburg Effect: aerobic glycolysis detected');
+  if((result.atp||0)<3) lines.push('❗ ATP critically low — energetic collapse risk');
+  else if((result.atp||0)>25) lines.push('✅ ATP surplus — anabolic state');
+  if((m.nadph||0)>5) lines.push('🧬 High NADPH — antioxidant + biosynthesis capacity up');
+  return lines;
+}
+
+// ══════════════════════════════════════════════════════════
+// TOOLTIP & REACTION CARD
+// ══════════════════════════════════════════════════════════
+function showTip(d, isRxn){
+  const tip=document.getElementById('tooltip');
+  const f=SIM.fluxes[d.id]||0;
+  if(isRxn){
+    tip.innerHTML=`
+      <div class="tip-n">${d.name}</div>
+      <div class="tip-t">${d.pathway?.toUpperCase()} · ${d.ec||''}</div>
+      <div class="tip-row"><span class="tip-key">Enzyme</span><span class="tip-v">${d.enzyme}</span></div>
+      <div class="tip-row"><span class="tip-key">KEGG</span><span class="tip-v">${d.kegg}</span></div>
+      <div class="tip-row"><span class="tip-key">ΔG°</span><span class="tip-v">${d.dg} kJ/mol</span></div>
+      <div class="tip-row"><span class="tip-key">Reversible</span><span class="tip-v">${d.rev?'Yes':'No'}</span></div>
+      <div class="tip-row"><span class="tip-key">Flux</span><span class="tip-v">${f.toFixed(3)}</span></div>
+      <div class="tip-row"><span class="tip-key">ATP yield</span><span class="tip-v">${d.atp>0?'+'+d.atp:d.atp}</span></div>
+      <div class="tip-reg">${d.regulation}</div>`;
+  } else {
+    const m=METABOLITES[d.id]||{};
+    tip.innerHTML=`
+      <div class="tip-n">${d.name||m.name}</div>
+      <div class="tip-t">${(m.pathway||'').toUpperCase()} · ${m.comp||''}</div>
+      <div class="tip-row"><span class="tip-key">Formula</span><span class="tip-v">${m.formula||'—'}</span></div>
+      <div class="tip-row"><span class="tip-key">KEGG</span><span class="tip-v">${m.kegg||'—'}</span></div>
+      <div class="tip-row"><span class="tip-key">Charge</span><span class="tip-v">${m.charge}</span></div>
+      <div class="tip-row"><span class="tip-key">Conn. flux</span><span class="tip-v">${f.toFixed(3)}</span></div>`;
+  }
+  tip.style.display='block';
+}
+
+function showRxnCard(d){
+  document.getElementById('rxn-card').style.display='block';
+  document.getElementById('rc-name').textContent=d.name;
+  document.getElementById('rc-name').style.color=PC[d.pathway]||'var(--teal)';
+  document.getElementById('rc-enz').textContent=d.enzyme||'—';
+  document.getElementById('rc-ec').textContent=d.ec||'—';
+  document.getElementById('rc-kegg').textContent=d.kegg||'—';
+  document.getElementById('rc-dg').textContent=d.dg;
+  document.getElementById('rc-rev').textContent=d.rev?'Yes (↔)':'No (→)';
+  document.getElementById('rc-flux').textContent=(SIM.fluxes[d.id]||0).toFixed(3)+' (a.u.)';
+  document.getElementById('rc-reg').textContent=d.regulation||'—';
+}
+
+// ══════════════════════════════════════════════════════════
+// CYCLE INFO MODALS
+// ══════════════════════════════════════════════════════════
+const CYCLE_INFO = {
+  glycolysis:{
+    title:'⚡ Glycolysis — 10 Steps (Cytosol)',color:'var(--c-glyco)',
+    steps:[
+      {n:'1',name:'Hexokinase (HK)',desc:'Glucose → Glucose-6-P. Phosphorylation "traps" glucose in the cell.',reg:'Inhibited by G6P (product inhibition)'},
+      {n:'2',name:'Phosphoglucose Isomerase (PGI)',desc:'G6P → F6P. Isomerization to prepare for splitting.',reg:'Near-equilibrium reaction'},
+      {n:'3',name:'Phosphofructokinase-1 (PFK-1)',desc:'F6P → F-1,6-BP. Commits sugar to glycolysis. RATE-LIMITING STEP.',reg:'⭐ KEY: Inhibited by ATP/citrate; activated by AMP/F-2,6-BP'},
+      {n:'4',name:'Aldolase (ALD)',desc:'F-1,6-BP → DHAP + G3P. Splits 6C sugar into two 3C molecules.',reg:'Product removal drives forward'},
+      {n:'5',name:'Triosephosphate Isomerase (TPI)',desc:'DHAP ↔ G3P. Converts DHAP for further processing.',reg:'Near-equilibrium'},
+      {n:'6',name:'G3P Dehydrogenase (GAPDH)',desc:'G3P + NAD+ → 1,3-BPG + NADH. Oxidation + phosphorylation.',reg:'Inhibited by high NADH/NAD+ ratio'},
+      {n:'7',name:'Phosphoglycerate Kinase (PGK)',desc:'1,3-BPG → 3-PG + ATP. First ATP synthesis (substrate-level).',reg:'Substrate-level phosphorylation ×2'},
+      {n:'8',name:'Phosphoglycerate Mutase (PGM)',desc:'3-PG → 2-PG. Shifts phosphate group.',reg:'Near-equilibrium'},
+      {n:'9',name:'Enolase (ENO)',desc:'2-PG → PEP + H₂O. Dehydration creates high-energy PEP.',reg:''},
+      {n:'10',name:'Pyruvate Kinase (PK)',desc:'PEP + ADP → Pyruvate + ATP. Final ATP synthesis. IMPORTANT CONTROL POINT.',reg:'⭐ Activated by F-1,6-BP; inhibited by ATP/Ala'},
+      {n:'Net',name:'NET YIELD',desc:'2 ATP consumed, 4 ATP produced → NET +2 ATP per glucose. 2 NADH produced.',reg:'Total glucose → 2 Pyruvate + 2 ATP + 2 NADH'},
+    ],
+  },
+  gluconeo:{
+    title:'🔄 Gluconeogenesis — Reverse of Glycolysis (Cytosol/Mito)',color:'var(--c-gluconeo)',
+    steps:[
+      {n:'1',name:'Pyruvate Carboxylase (PC)',desc:'Pyruvate + CO₂ + ATP → Oxaloacetate (mito). Bypasses PK (irreversible).',reg:'⭐ Activated by Acetyl-CoA (energy surplus signal)'},
+      {n:'2',name:'PEPCK',desc:'OAA + GTP → PEP + CO₂. Bypasses PK. OAA exits mito as malate.',reg:'Induced by glucagon/cortisol; repressed by insulin'},
+      {n:'3',name:'Enolase (rev)',desc:'PEP → 2-PG (reverse of glycolysis). Shared reversible step.',reg:''},
+      {n:'4',name:'PGM (rev)',desc:'2-PG → 3-PG',reg:''},
+      {n:'5',name:'PGK (rev)',desc:'3-PG → 1,3-BPG (uses ATP)',reg:''},
+      {n:'6',name:'GAPDH (rev)',desc:'1,3-BPG → G3P (uses NADH)',reg:''},
+      {n:'7',name:'TPI (rev) + Aldolase (rev)',desc:'2×G3P → DHAP → F-1,6-BP',reg:''},
+      {n:'8',name:'Fructose-1,6-bisphosphatase (FBPase)',desc:'F-1,6-BP + H₂O → F6P. Bypasses PFK-1 (irreversible).',reg:'⭐ Inhibited by AMP/F-2,6-BP; activated by ATP/citrate'},
+      {n:'9',name:'PGI (rev)',desc:'F6P → G6P',reg:''},
+      {n:'10',name:'Glucose-6-Phosphatase (G6Pase)',desc:'G6P + H₂O → Glucose. Only in liver/kidney ER! Absent in muscle.',reg:'Releases glucose into bloodstream'},
+      {n:'Net',name:'NET COST',desc:'2 Pyruvate → Glucose costs: 4 ATP + 2 GTP + 2 NADH consumed',reg:'Runs in liver/kidney during fasting/starvation'},
+    ],
+  },
+  tca:{
+    title:'🌀 TCA Cycle (Krebs Cycle) — 8 Steps (Mitochondria)',color:'var(--c-tca)',
+    steps:[
+      {n:'1',name:'Pyruvate Dehydrogenase (PDH)',desc:'Pyruvate + NAD+ + CoA → Acetyl-CoA + NADH + CO₂. Bridge reaction.',reg:'⭐ Inhibited by Acetyl-CoA/NADH; activated by Ca²⁺/insulin'},
+      {n:'2',name:'Citrate Synthase (CS)',desc:'Acetyl-CoA + OAA → Citrate. Entry into cycle.',reg:'⭐ KEY: inhibited by ATP/NADH/succinyl-CoA/citrate'},
+      {n:'3',name:'Aconitase (ACO)',desc:'Citrate → Isocitrate. Isomerization via aconitate.',reg:'Fe-S cluster; inhibited by fluorocitrate'},
+      {n:'4',name:'Isocitrate Dehydrogenase (IDH)',desc:'Isocitrate + NAD+ → α-KG + NADH + CO₂. First CO₂ release.',reg:'⭐ KEY: activated by ADP/Ca²⁺; inhibited by ATP/NADH'},
+      {n:'5',name:'α-KG Dehydrogenase (OGDH)',desc:'α-KG + NAD+ + CoA → Succinyl-CoA + NADH + CO₂. Second CO₂.',reg:'Inhibited by succinyl-CoA/NADH/ATP; activated by Ca²⁺'},
+      {n:'6',name:'Succinyl-CoA Ligase (SUCL)',desc:'Succinyl-CoA + GDP + Pi → Succinate + GTP + CoA. GTP synthesis.',reg:'Substrate-level phosphorylation'},
+      {n:'7',name:'Succinate Dehydrogenase (SDH)',desc:'Succinate → Fumarate + FADH₂. Only TCA enzyme in inner membrane.',reg:'Inhibited by malonate (competitive); links TCA to ETC'},
+      {n:'8',name:'Fumarase (FUM)',desc:'Fumarate + H₂O → Malate.',reg:'Near-equilibrium'},
+      {n:'9',name:'Malate Dehydrogenase (MDH)',desc:'Malate + NAD+ → OAA + NADH. Regenerates OAA for next turn.',reg:'Near-equilibrium (thermodynamically unfavorable → CS pulls forward)'},
+      {n:'Net',name:'NET YIELD (per Acetyl-CoA)',desc:'3 NADH + 1 FADH₂ + 1 GTP + 2 CO₂. Per glucose (2 turns): 6 NADH + 2 FADH₂ + 2 GTP.',reg:'Feeds ETC → ~32 ATP total via oxidative phosphorylation'},
+    ],
+  },
+  ppp:{
+    title:'🧬 Pentose Phosphate Pathway — 8 Steps (Cytosol)',color:'var(--c-ppp)',
+    steps:[
+      {n:'1',name:'G6P Dehydrogenase (G6PDH)',desc:'G6P + NADP+ → 6-Phosphogluconolactone + NADPH. RATE-LIMITING.',reg:'⭐ X-linked deficiency (G6PD deficiency); inhibited by NADPH'},
+      {n:'2',name:'Lactonase (PGLS)',desc:'6-PGL + H₂O → 6-Phosphogluconate.',reg:'Spontaneous hydrolysis'},
+      {n:'3',name:'6-PG Dehydrogenase (PGD)',desc:'6-PG + NADP+ → Ribulose-5-P + NADPH + CO₂.',reg:'Inhibited by NADPH; second NADPH produced'},
+      {n:'4',name:'Ribose-5-P Isomerase (RPI)',desc:'Ru5P → R5P (Ribose-5-P). Product for nucleotide synthesis.',reg:'Near-equilibrium'},
+      {n:'5',name:'Ribulose-P Epimerase (RPE)',desc:'Ru5P → X5P (Xylulose-5-P).',reg:'Near-equilibrium'},
+      {n:'6',name:'Transketolase-1 (TK1)',desc:'X5P + R5P → S7P + G3P. TPP cofactor (like PDH).',reg:'Links PPP back to glycolysis'},
+      {n:'7',name:'Transaldolase (TA)',desc:'S7P + G3P → E4P + F6P. Carbon shuffling.',reg:'Near-equilibrium'},
+      {n:'8',name:'Transketolase-2 (TK2)',desc:'X5P + E4P → F6P + G3P. Returns carbons to glycolysis.',reg:'Same enzyme as TK1'},
+      {n:'Net (oxidative)',name:'NET YIELD',desc:'Glucose-6-P + 2 NADP+ → Ribulose-5-P + 2 NADPH + CO₂.',reg:'2 NADPH per G6P oxidized; used for fatty acid synthesis + antioxidant defense (GSH)'},
+    ],
+  },
+};
+
+function showCycleInfo(pathway){
+  const info=CYCLE_INFO[pathway];if(!info) return;
+  const box=document.getElementById('cm-box');
+  box.innerHTML=`
+    <button class="cm-close" onclick="closeCycleModal()">×</button>
+    <div class="cm-title" style="color:${info.color}">${info.title}</div>
+    ${info.steps.map((s,i)=>`
+      <div class="cm-step">
+        <div class="cm-num" style="background:${info.color}22;border:1px solid ${info.color}55;color:${info.color}">${s.n}</div>
+        <div class="cm-step-content">
+          <div class="cm-step-name" style="color:${info.color}">${s.name}</div>
+          <div class="cm-step-desc">${s.desc}</div>
+          ${s.reg?`<div class="cm-step-reg">${s.reg}</div>`:''}
+        </div>
+      </div>
+    `).join('')}`;
+  document.getElementById('cycle-modal').style.display='flex';
+}
+
+function closeCycleModal(){
+  document.getElementById('cycle-modal').style.display='none';
+}
+
+// ══════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════
+function addLog(msg,type=''){
+  const box=document.getElementById('logBox');
+  const entry=document.createElement('div');
+  entry.className='log-entry '+type;
+  entry.textContent=`[${SIM.step}] ${msg}`;
+  box.insertBefore(entry,box.firstChild);
+  while(box.children.length>40) box.removeChild(box.lastChild);
+}
+
+let alertTimer;
+function showAlert(msg,type='info'){
+  const el=document.getElementById('alert');
+  el.textContent=msg;el.className='show '+type;
+  clearTimeout(alertTimer);
+  alertTimer=setTimeout(()=>el.className='',2800);
+}
+
+// ══════════════════════════════════════════════════════════
+// MAIN LOOP
+// ══════════════════════════════════════════════════════════
+let lastTime=0;
+const BASE_INTERVAL=500;
+
+async function simStep(ts){
+  if(!lastTime) lastTime=ts;
+  const elapsed=ts-lastTime;
+  const interval=BASE_INTERVAL/SIM.speed;
+
+  if(SIM.running && elapsed>=interval){
+    lastTime=ts;
+    SIM.step++;
+
+    // Slowly deplete nutrients
+    SIM.glucose=Math.max(0.5, SIM.glucose-0.03*SIM.speed);
+    SIM.oxygen =Math.max(0.01,SIM.oxygen -0.002*SIM.speed);
+    document.getElementById('sGluc').value=SIM.glucose;
+    document.getElementById('sOxy').value=SIM.oxygen;
+    document.getElementById('lGluc').textContent=SIM.glucose.toFixed(1)+' mM';
+    document.getElementById('lOxy').textContent=(SIM.oxygen*100).toFixed(1)+'%';
+
+    // Try API first, fall back to client FBA
+    let result=null;
+    if(SIM.apiOnline || SIM.step%5===0){
+      const data=await callAPI(SIM.glucose,SIM.oxygen,SIM.enzyme,SIM.temp);
+      if(data){
+        result={fluxes:data.fluxes,atp:data.metabolites?.atp||0,
+          mets:{pyruvate:data.metabolites?.pyruvate||0,lactate:data.metabolites?.lactate||0,
+                nadh:data.metabolites?.nadh||0,fadh2:data.metabolites?.fadh2||0,
+                citrate:data.metabolites?.citrate||0,r5p:data.metabolites?.r5p||0,
+                nadph:data.metabolites?.nadph||0,warburg:data.warburg||'LOW'},
+          atpAcct:data.atp_accounting||{},
+          interpretation:data.interpretation||null};
+      }
+    }
+    if(!result) result=runFBA(SIM.glucose,SIM.oxygen,SIM.enzyme,SIM.temp);
+
+    SIM.fluxes=result.fluxes;
+
+    // History
+    SIM.history.push({
+      step:SIM.step,atp:result.atp||0,glucose:SIM.glucose,oxygen:SIM.oxygen,
+      lactate:result.mets?.lactate||0,nadph:result.mets?.nadph||0,
+    });
+    if(SIM.history.length>MAX_HIST) SIM.history.shift();
+
+    updateMap(result.fluxes);
+    updateFluxList(result.fluxes);
+    updateStats(result,SIM.glucose,SIM.oxygen);
+    updateTimeGraph();
+    if(result.interpretation) updateInterpretation(result.interpretation);
+    else updateInterpretation(buildInterpretation(result,SIM.glucose,SIM.oxygen));
+  }
+
+  drawParticles();
+  requestAnimationFrame(simStep);
+}
+
+// ══════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════
+window.addEventListener('load',()=>{
+  onCtrl();
+  initMap();
+  initTimeGraph();
+  initFluxList();
+  updateApiBadge();
+  // Check API
+  callAPI(8,0.21,1,37).then(()=>{
+    if(SIM.apiOnline) addLog('Backend API connected ✓','info');
+    else addLog('Running in local FBA mode (backend offline)','warn');
+  });
+  requestAnimationFrame(simStep);
+  addLog('Cell Digital Twin v2 loaded','info');
+  addLog(`${REACTIONS_DATA.length} reactions · ${Object.keys(METABOLITES).length} metabolites`,'info');
+  addLog('4 pathways: Glycolysis, TCA, PPP, Gluconeogenesis','info');
+});
+
+window.addEventListener('resize',()=>{
+  initMap(); initTimeGraph(); resizeParticles();
+});
+</script>
+</body>
+</html>
