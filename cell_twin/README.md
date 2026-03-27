@@ -1,6 +1,6 @@
-# 🧬 Cell Digital Twin — Metabolic Atlas v2
+<img width="1901" height="990" alt="image" src="https://github.com/user-attachments/assets/68c6af40-4196-409d-82ef-6932f56146cb" /># 🧬 Cell Digital Twin — Metabolic Atlas v2
 ### Full-Stack Metabolic Simulation: FastAPI + PyTorch GNN + Escher-Style Pathway Map
-
+Working link - https://tca-ppp-glycolysis-simulation.vercel.app/
 ---
 
 ## 🗂 Project Structure
@@ -48,7 +48,6 @@ python main.py
 cd frontend && python -m http.server 3000
 # Open http://localhost:3000
 ```
-
 ---
 
 ## 🔬 What's Implemented
