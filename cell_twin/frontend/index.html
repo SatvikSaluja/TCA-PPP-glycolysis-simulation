@@ -80,8 +80,13 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .clabel{font-size:9px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;
   display:flex;justify-content:space-between;margin-bottom:6px;}
 .cval{color:var(--teal);font-weight:700}
-input[type=range]{width:100%;-webkit-appearance:none;height:3px;background:var(--ink3);
-  border-radius:2px;outline:none;cursor:pointer;margin:4px 0;}
+input[type=range] {
+  width: 100%;
+  appearance: none;           /* standard */
+  -webkit-appearance: none;   /* Safari/Chrome */
+  height: 3px;
+  background: var(--ink3);
+}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
   border-radius:50%;background:var(--teal);box-shadow:0 0 7px var(--teal);cursor:pointer;transition:transform .1s}
 input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.3)}

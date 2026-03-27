@@ -119,8 +119,10 @@ if TORCH_AVAILABLE and TG_AVAILABLE:
           - Skip connections
           - Separate readout MLP for reaction flux prediction
         """
-        def __init__(self, in_dim=11, hidden=64, heads=4, env_dim=4, n_rxns=N_RXNS):
+        def __init__(self, hidden=64, heads=4, env_dim=4, n_rxns=N_RXNS):
             super().__init__()
+            sample = make_node_features()
+            in_dim = len(sample[0])
             self.embed = nn.Linear(in_dim, hidden)
 
             self.conv1 = GATv2Conv(hidden, hidden//heads, heads=heads,
@@ -253,12 +255,14 @@ def get_model():
     if not TORCH_AVAILABLE or not TG_AVAILABLE:
         return None
     if _model is None:
+        if not os.path.exists(MODEL_PATH):
+            raise RuntimeError(
+                " Model not trained. Run `_train_model()` once before starting the server."
+            )
         _model = MetabolicGNN()
-        if os.path.exists(MODEL_PATH):
-            _model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
-            _trained = True
-        else:
-            _train_model()
+        _model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
+        _model.eval()
+        _trained = True
     return _model
 
 def _train_model():
