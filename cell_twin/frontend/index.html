@@ -616,7 +616,6 @@ async function callAPI(g,o,e,t){
     const r = await fetch(API_BASE+ep,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({glucose:g,oxygen:o,enzyme_activity:e,temperature:t,model:SIM.model}),
-      signal:AbortSignal.timeout(2000),
     });
     if(!r.ok) return null;
     const data = await r.json();
@@ -1406,6 +1405,20 @@ window.addEventListener('load',()=>{
 window.addEventListener('resize',()=>{
   initMap(); initTimeGraph(); resizeParticles();
 });
+
+window.addEventListener('load', async () => {
+  console.log("Checking backend...");
+
+  const res = await callAPI(
+    SIM.glucose,
+    SIM.oxygen,
+    SIM.enzyme,
+    SIM.temp
+  );
+
+  console.log("API response:", res);
+});
+
 </script>
 </body>
 </html>
